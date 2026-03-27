@@ -1,3 +1,6 @@
+## Purpose
+Defines PixiJS-based client rendering, UI, and interaction for the sandbox mode (no server, local tick simulation).
+
 ## ADDED Requirements
 
 ### Requirement: Map rendering

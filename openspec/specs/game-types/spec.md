@@ -1,3 +1,6 @@
+## Purpose
+Defines core TypeScript types shared across game, client, and server packages.
+
 ## ADDED Requirements
 
 ### Requirement: Core type definitions
