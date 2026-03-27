@@ -23,14 +23,14 @@ Disconnected nodes SHALL lose health each tick. The death rate SHALL be defined 
 - **THEN** the node stops losing health and resumes normal function
 
 ### Requirement: Cascading disconnection
-When a disconnected node is destroyed and has children, those children also become disconnected and begin dying.
+When a disconnected node is destroyed and has children, those children SHALL also become disconnected and SHALL begin dying.
 
 #### Scenario: Cascading death
 - **WHEN** a disconnected node dies and had two child nodes
 - **THEN** both children are now disconnected and begin losing health per tick
 
 ### Requirement: Root node destruction ends the game
-When a player's root node is destroyed, that player loses the match immediately.
+When a player's root node is destroyed, that player SHALL lose the match immediately.
 
 #### Scenario: Root destroyed
 - **WHEN** a player's root node health reaches zero
