@@ -5,8 +5,12 @@ import {
   defaultGameConfig,
   validatePlaceNode,
   simulateTick,
+  loadScenario,
+  builtInScenarios,
 } from "@fungus/game";
-import type { GameState, GameAction, GameConfig } from "@fungus/game";
+import type { GameState, GameAction, GameConfig, ScenarioData } from "@fungus/game";
+
+const SCENARIOS: ScenarioData[] = builtInScenarios;
 
 const PLAYER_ID = "player-1";
 let gameState: GameState;
@@ -16,6 +20,8 @@ let selectedNodeType: string | null = null;
 let tickMode: "auto" | "manual" = "manual";
 let autoTickInterval: ReturnType<typeof setInterval> | null = null;
 let queuedActions: GameAction[] = [];
+let debugOverlayVisible = false;
+const debugContainer = new Container();
 
 const previewContainer = new Container();
 let previewGraphics: Graphics | null = null;
@@ -30,6 +36,7 @@ function init(): void {
   renderer.init(appEl).then(() => {
     renderer.render(gameState, config);
     setupInteraction();
+    setupDebugToggle();
     createUI();
     updateHUD();
   });
@@ -39,7 +46,7 @@ function setupInteraction(): void {
   const canvas = renderer["app"].canvas as HTMLCanvasElement;
 
   canvas.addEventListener("pointerdown", (e) => {
-    if (e.button === 0 && selectedNodeType) {
+    if (e.button === 0 && selectedNodeType && !gameState.winner) {
       const rect = canvas.getBoundingClientRect();
       const screenX = e.clientX - rect.left;
       const screenY = e.clientY - rect.top;
@@ -94,6 +101,65 @@ function setupInteraction(): void {
   });
 }
 
+function setupDebugToggle(): void {
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "d" || e.key === "D") {
+      debugOverlayVisible = !debugOverlayVisible;
+      renderDebugOverlay();
+    }
+  });
+}
+
+function renderDebugOverlay(): void {
+  debugContainer.removeChildren();
+
+  if (!debugOverlayVisible) return;
+
+  for (const node of gameState.nodes) {
+    const g = new Graphics();
+
+    const dotColor = node.connected ? 0x00ff00 : 0xff0000;
+    g.circle(14, -14, 4);
+    g.fill(dotColor);
+
+    if (node.nodeType === "turret") {
+      const attackRange = config.map.nodeTypeConfigs.turret?.attackRange;
+      if (attackRange) {
+        g.circle(node.position.x, node.position.y, attackRange);
+        g.stroke({ color: 0xff8c00, width: 1, alpha: 0.4 });
+      }
+    }
+
+    debugContainer.addChild(g);
+  }
+
+  let existingDebugHtml = document.getElementById("debug-html-overlay");
+  if (!existingDebugHtml) {
+    existingDebugHtml = document.createElement("div");
+    existingDebugHtml.id = "debug-html-overlay";
+    existingDebugHtml.style.cssText = `
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      pointer-events: none; font-family: monospace; font-size: 10px;
+      color: white; z-index: 100; display: none;
+    `;
+    document.body.appendChild(existingDebugHtml);
+  }
+
+  if (debugOverlayVisible) {
+    existingDebugHtml.style.display = "block";
+    existingDebugHtml.innerHTML = gameState.nodes.map((node) => {
+      const color = node.connected ? "#0f0" : "#f00";
+      const bgColor = node.connected ? "rgba(0,255,0,0.15)" : "rgba(255,0,0,0.15)";
+      return `<div style="position:absolute;left:${node.position.x + 18}px;top:${node.position.y - 20}px;color:${color};background:${bgColor};padding:1px 4px;border-radius:2px;white-space:nowrap;">${node.health}/${node.maxHealth}</div>`;
+    }).join("");
+  } else {
+    existingDebugHtml.style.display = "none";
+  }
+
+  const world = (renderer as any)["world"] as Container;
+  world.addChild(debugContainer);
+}
+
 function showPlacementPreview(
   position: { x: number; y: number },
   valid: boolean,
@@ -104,7 +170,10 @@ function showPlacementPreview(
 
   const maxDist = config.map.maxConnectionDistance;
   previewGraphics.circle(position.x, position.y, maxDist);
-  previewGraphics.fill(valid ? 0x00ff0033 : 0xff000033);
+  previewGraphics.fill({
+    color: valid ? 0x00ff00 : 0xff0000,
+    alpha: 0.2,
+  });
   previewGraphics.circle(position.x, position.y, maxDist);
   previewGraphics.stroke({
     color: valid ? 0x00ff00 : 0xff0000,
@@ -112,11 +181,34 @@ function showPlacementPreview(
     alpha: 0.5,
   });
 
-  const nodeColor =
-    selectedNodeType === "root" ? 0xe9456088 : 0x53d76988;
-  const radius = selectedNodeType === "root" ? 12 : 8;
+  let nodeColor: number;
+  let nodeAlpha: number;
+  let radius: number;
+  switch (selectedNodeType) {
+    case "turret":
+      nodeColor = 0xff8c00;
+      nodeAlpha = 0.53;
+      radius = 9;
+      break;
+    case "shield":
+      nodeColor = 0x00bfff;
+      nodeAlpha = 0.53;
+      radius = 9;
+      break;
+    case "root":
+      nodeColor = 0xe94560;
+      nodeAlpha = 0.53;
+      radius = 12;
+      break;
+    default:
+      nodeColor = 0x53d769;
+      nodeAlpha = 0.53;
+      radius = 8;
+      break;
+  }
+
   previewGraphics.circle(position.x, position.y, radius);
-  previewGraphics.fill(nodeColor);
+  previewGraphics.fill({ color: nodeColor, alpha: nodeAlpha });
 
   previewContainer.addChild(previewGraphics);
 
@@ -223,7 +315,64 @@ function createUI(): void {
   controls.appendChild(executeBtn);
 
   uiDiv.appendChild(controls);
+
+  const scenarioPanel = createScenarioPanel();
+  uiDiv.appendChild(scenarioPanel);
+
   document.body.appendChild(uiDiv);
+}
+
+function createScenarioPanel(): HTMLElement {
+  const panel = document.createElement("div");
+  panel.id = "scenario-panel";
+  panel.style.cssText = `
+    position: absolute; top: 10px; right: 10px;
+    background: rgba(0,0,0,0.7); padding: 10px 15px;
+    border-radius: 5px; pointer-events: auto;
+    font-family: monospace; font-size: 13px; min-width: 180px;
+  `;
+
+  const title = document.createElement("div");
+  title.textContent = "Scenarios";
+  title.style.cssText = `font-size: 14px; font-weight: bold; margin-bottom: 8px; color: #4ecdc4;`;
+  panel.appendChild(title);
+
+  for (const scenario of SCENARIOS) {
+    const entry = document.createElement("div");
+    entry.style.cssText = `margin-bottom: 6px;`;
+
+    const name = document.createElement("div");
+    name.textContent = scenario.name;
+    name.style.cssText = `color: #e0e0e0; font-weight: bold;`;
+    entry.appendChild(name);
+
+    const desc = document.createElement("div");
+    desc.textContent = scenario.description;
+    desc.style.cssText = `color: #888; font-size: 11px; margin-bottom: 4px;`;
+    entry.appendChild(desc);
+
+    const loadBtn = document.createElement("button");
+    loadBtn.textContent = "Load";
+    loadBtn.style.cssText = `
+      padding: 4px 12px; border: 2px solid #4ecdc4;
+      background: #16213e; color: #4ecdc4; cursor: pointer;
+      border-radius: 4px; font-family: monospace; font-size: 11px;
+    `;
+    loadBtn.addEventListener("click", () => {
+      if (tickMode === "auto") toggleAutoTick();
+      gameState = loadScenario(config, scenario);
+      queuedActions = [];
+      updateActionPreview();
+      renderer.render(gameState, config);
+      updateHUD();
+      if (debugOverlayVisible) renderDebugOverlay();
+    });
+    entry.appendChild(loadBtn);
+
+    panel.appendChild(entry);
+  }
+
+  return panel;
 }
 
 function updatePaletteSelection(): void {
@@ -255,15 +404,26 @@ function updateHUD(): void {
   const player = gameState.players.find((p) => p.id === PLAYER_ID);
   const resources = player ? player.resources : 0;
 
+  let winnerText = "";
+  if (gameState.winner) {
+    const isPlayerWin = gameState.winner === PLAYER_ID;
+    winnerText = isPlayerWin
+      ? `<div style="color:#53d769;font-weight:bold;margin-top:4px;">VICTORY!</div>`
+      : `<div style="color:#e94560;font-weight:bold;margin-top:4px;">DEFEAT!</div>`;
+  }
+
   hud.innerHTML = `
     <div>Resources: <span style="color:#53d769">${resources}</span> / ${config.resourceCap}</div>
     <div>Tick: <span style="color:#e94560">${gameState.tick}</span></div>
     <div>Mode: <span style="color:#4ecdc4">${tickMode}</span></div>
     <div>Queued: ${queuedActions.length} action(s)</div>
+    ${winnerText}
   `;
 }
 
 function advanceTick(): void {
+  if (gameState.winner) return;
+
   const playerActions = new Map<string, GameAction[]>();
   if (queuedActions.length > 0) {
     playerActions.set(PLAYER_ID, [...queuedActions]);
@@ -273,6 +433,7 @@ function advanceTick(): void {
   updateActionPreview();
   renderer.render(gameState, config);
   updateHUD();
+  if (debugOverlayVisible) renderDebugOverlay();
 }
 
 function toggleAutoTick(): void {

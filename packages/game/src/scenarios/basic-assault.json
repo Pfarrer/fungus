@@ -1,0 +1,10 @@
+{
+  "name": "Basic Assault",
+  "description": "A small enemy outpost near your starting position. Test your first combat encounter.",
+  "enemyNodes": [
+    { "id": "e1", "nodeType": "root", "position": { "x": 650, "y": 300 }, "parentId": null },
+    { "id": "e2", "nodeType": "generator", "position": { "x": 620, "y": 280 }, "parentId": "e1" },
+    { "id": "e3", "nodeType": "generator", "position": { "x": 620, "y": 320 }, "parentId": "e1" },
+    { "id": "e4", "nodeType": "turret", "position": { "x": 580, "y": 300 }, "parentId": "e2" }
+  ]
+}

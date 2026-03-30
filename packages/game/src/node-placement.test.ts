@@ -198,8 +198,8 @@ describe("node placement", () => {
       expect(newNode!.maxHealth).toBe(30);
 
       const edge = newState.edges[0];
-      expect(edge.health).toBe(30);
-      expect(edge.maxHealth).toBe(30);
+      expect(edge.health).toBe(defaultGameConfig.map.edgeHealth);
+      expect(edge.maxHealth).toBe(defaultGameConfig.map.edgeHealth);
     });
 
     it("does not mutate original state", () => {

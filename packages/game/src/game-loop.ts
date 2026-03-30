@@ -1,6 +1,8 @@
 import type { GameAction, GameConfig, GameState } from "./types.js";
 import { placeNode } from "./node-placement.js";
 import { generateResources } from "./resource-economy.js";
+import { resolveCombat } from "./combat.js";
+import { resolveDeath } from "./death.js";
 
 export function processActions(
   state: GameState,
@@ -37,6 +39,8 @@ export function simulateTick(
   }
 
   currentState = generateResources(currentState, config);
+  currentState = resolveCombat(currentState, config);
+  currentState = resolveDeath(currentState, config);
   currentState = { ...currentState, tick: currentState.tick + 1 };
 
   return currentState;

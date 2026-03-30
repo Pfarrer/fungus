@@ -7,7 +7,12 @@ const ROOT_COLOR = 0xe94560;
 const ROOT_RADIUS = 12;
 const GENERATOR_COLOR = 0x53d769;
 const GENERATOR_RADIUS = 8;
+const TURRET_COLOR = 0xff8c00;
+const TURRET_RADIUS = 9;
+const SHIELD_COLOR = 0x00bfff;
+const SHIELD_RADIUS = 9;
 const EDGE_COLOR = 0x4a4e69;
+const EDGE_DAMAGED_COLOR = 0xe94560;
 const EDGE_WIDTH = 2;
 const HEALTH_BG_COLOR = 0x333333;
 const HEALTH_FG_COLOR = 0x00ff00;
@@ -73,10 +78,15 @@ export class GameRenderer {
       const to = nodeMap.get(edge.toNodeId);
       if (!from || !to) continue;
 
+      const healthRatio = edge.health / edge.maxHealth;
+      const lineColor = healthRatio < 0.5
+        ? EDGE_DAMAGED_COLOR
+        : EDGE_COLOR;
+
       const line = new Graphics();
       line.moveTo(from.position.x, from.position.y);
       line.lineTo(to.position.x, to.position.y);
-      line.stroke({ color: EDGE_COLOR, width: EDGE_WIDTH });
+      line.stroke({ color: lineColor, width: EDGE_WIDTH });
       this.edgesContainer.addChild(line);
     }
   }
@@ -88,9 +98,27 @@ export class GameRenderer {
       const container = new Container();
       container.position.set(node.position.x, node.position.y);
 
-      const isRoot = node.nodeType === "root";
-      const radius = isRoot ? ROOT_RADIUS : GENERATOR_RADIUS;
-      const color = isRoot ? ROOT_COLOR : GENERATOR_COLOR;
+      let radius: number;
+      let color: number;
+
+      switch (node.nodeType) {
+        case "root":
+          radius = ROOT_RADIUS;
+          color = ROOT_COLOR;
+          break;
+        case "turret":
+          radius = TURRET_RADIUS;
+          color = TURRET_COLOR;
+          break;
+        case "shield":
+          radius = SHIELD_RADIUS;
+          color = SHIELD_COLOR;
+          break;
+        default:
+          radius = GENERATOR_RADIUS;
+          color = GENERATOR_COLOR;
+          break;
+      }
 
       const circle = new Graphics();
       circle.circle(0, 0, radius);

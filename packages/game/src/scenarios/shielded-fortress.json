@@ -1,0 +1,13 @@
+{
+  "name": "Shielded Fortress",
+  "description": "An enemy base with shields protecting key nodes. Bring enough firepower to break through.",
+  "enemyNodes": [
+    { "id": "e1", "nodeType": "root", "position": { "x": 680, "y": 300 }, "parentId": null },
+    { "id": "e2", "nodeType": "shield", "position": { "x": 650, "y": 300 }, "parentId": "e1" },
+    { "id": "e3", "nodeType": "turret", "position": { "x": 620, "y": 300 }, "parentId": "e2" },
+    { "id": "e4", "nodeType": "generator", "position": { "x": 680, "y": 270 }, "parentId": "e1" },
+    { "id": "e5", "nodeType": "generator", "position": { "x": 680, "y": 330 }, "parentId": "e1" },
+    { "id": "e6", "nodeType": "shield", "position": { "x": 680, "y": 240 }, "parentId": "e4" },
+    { "id": "e7", "nodeType": "turret", "position": { "x": 650, "y": 240 }, "parentId": "e6" }
+  ]
+}

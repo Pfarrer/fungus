@@ -49,6 +49,9 @@ export interface NodeTypeConfig {
   health: number;
   productionPerTick: number;
   consumptionPerTick: number;
+  damagePerTick?: number;
+  attackRange?: number;
+  shieldReductionPercent?: number;
 }
 
 export interface MapConfig {
@@ -57,10 +60,33 @@ export interface MapConfig {
   maxConnectionDistance: number;
   spawnPoints: Position[];
   nodeTypeConfigs: Record<string, NodeTypeConfig>;
+  edgeHealth: number;
 }
 
 export interface GameConfig {
   map: MapConfig;
   tickDurationMs: number;
   resourceCap: number;
+  deathRatePerTick: number;
+  maxShieldReductionPercent: number;
+}
+
+export interface ScenarioNodeData {
+  id: string;
+  nodeType: string;
+  position: Position;
+  parentId: string | null;
+}
+
+export interface ScenarioEdgeData {
+  id: string;
+  fromNodeId: string;
+  toNodeId: string;
+}
+
+export interface ScenarioData {
+  name: string;
+  description: string;
+  enemyNodes: ScenarioNodeData[];
+  enemyEdges?: ScenarioEdgeData[];
 }

@@ -6,6 +6,27 @@ export function euclideanDistance(a: Position, b: Position): number {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
+export function pointToSegmentDistance(
+  point: Position,
+  segStart: Position,
+  segEnd: Position,
+): number {
+  const dx = segEnd.x - segStart.x;
+  const dy = segEnd.y - segStart.y;
+  const lenSq = dx * dx + dy * dy;
+
+  if (lenSq === 0) {
+    return euclideanDistance(point, segStart);
+  }
+
+  let t = ((point.x - segStart.x) * dx + (point.y - segStart.y) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+
+  const projX = segStart.x + t * dx;
+  const projY = segStart.y + t * dy;
+  return euclideanDistance(point, { x: projX, y: projY });
+}
+
 export function findClosestFriendlyNode(
   state: GameState,
   playerId: string,

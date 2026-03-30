@@ -126,8 +126,8 @@ export function placeNode(
     id: newEdgeId,
     fromNodeId: closestNode.id,
     toNodeId: newNodeId,
-    health: typeConfig.health,
-    maxHealth: typeConfig.health,
+    health: config.map.edgeHealth,
+    maxHealth: config.map.edgeHealth,
   };
 
   return {
