@@ -11,13 +11,8 @@ The game is playable online. Milestone 4 polishes the experience: smooth visuals
 - Match end screen with results
 - Better visual feedback: damage flash, node death animation, edge break effect
 - Correspondence mode polish: notifications, "your turn" indicators, action history
-- Basic AI opponent for single-player (random builder or simple heuristic)
 
 ## Capabilities
-
-### New Capabilities
-
-- `ai-opponent`: Basic AI that builds networks and fires turrets using simple heuristics
 
 ### Modified Capabilities
 
@@ -28,6 +23,6 @@ The game is playable online. Milestone 4 polishes the experience: smooth visuals
 ## Impact
 
 - Primarily client-side polish in `packages/client/`
-- Minor game logic changes in `packages/game/` for AI and shields
+- Minor game logic changes in `packages/game/` for shields
 - No server changes expected
 - Balance changes may require iterative playtesting
