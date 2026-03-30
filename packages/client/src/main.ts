@@ -1,40 +1,39 @@
 import { Container, Graphics } from "pixi.js";
 import { GameRenderer } from "./renderer.js";
+import { GameConnection } from "./connection.js";
+import type { ConnectionStatus } from "./connection.js";
 import {
-  createInitialState,
   defaultGameConfig,
   validatePlaceNode,
-  simulateTick,
-  loadScenario,
-  builtInScenarios,
 } from "@fungus/game";
-import type { GameState, GameAction, GameConfig, ScenarioData } from "@fungus/game";
+import type { GameState, GameAction, GameConfig } from "@fungus/game";
 
-const SCENARIOS: ScenarioData[] = builtInScenarios;
+const PLAYER_ID = new URLSearchParams(window.location.search).get("playerId") ?? "player-1";
+const MATCH_ID = new URLSearchParams(window.location.search).get("matchId") ?? "match-1";
 
-const PLAYER_ID = "player-1";
-let gameState: GameState;
-let config: GameConfig;
+let gameState: GameState | null = null;
+let config: GameConfig = defaultGameConfig;
 let renderer: GameRenderer;
 let selectedNodeType: string | null = null;
-let tickMode: "auto" | "manual" = "manual";
-let autoTickInterval: ReturnType<typeof setInterval> | null = null;
 let queuedActions: GameAction[] = [];
 let debugOverlayVisible = false;
 const debugContainer = new Container();
+let connectionStatus: ConnectionStatus = "disconnected";
+let waitingForOpponent = false;
+let secondsRemaining: number | null = null;
+let actionsSentThisTick = false;
 
 const previewContainer = new Container();
 let previewGraphics: Graphics | null = null;
 
-function init(): void {
-  config = defaultGameConfig;
-  gameState = createInitialState(config);
+let connection: GameConnection;
 
-  const appEl = document.getElementById("app")!;
+function init(): void {
   renderer = new GameRenderer();
+  const appEl = document.getElementById("app")!;
 
   renderer.init(appEl).then(() => {
-    renderer.render(gameState, config);
+    setupConnection();
     setupInteraction();
     setupDebugToggle();
     createUI();
@@ -42,11 +41,54 @@ function init(): void {
   });
 }
 
+function setupConnection(): void {
+  const wsUrl = `ws://localhost:3001?matchId=${encodeURIComponent(MATCH_ID)}&playerId=${encodeURIComponent(PLAYER_ID)}`;
+  connection = new GameConnection(wsUrl);
+
+  connection.on("match-state", (data) => {
+    gameState = data.gameState;
+    renderState();
+  });
+
+  connection.on("tick-result", (data) => {
+    gameState = data.gameState;
+    secondsRemaining = null;
+    actionsSentThisTick = false;
+    renderState();
+  });
+
+  connection.on("tick-countdown", (data) => {
+    secondsRemaining = data.secondsRemaining;
+    updateHUD();
+  });
+
+  connection.on("waiting", () => {
+    waitingForOpponent = true;
+    updateHUD();
+  });
+
+  connection.onStatusChange((status) => {
+    connectionStatus = status;
+    updateHUD();
+  });
+
+  connection.connect();
+}
+
+function renderState(): void {
+  if (!gameState) return;
+  waitingForOpponent = false;
+  renderer.render(gameState, config);
+  updateHUD();
+  updateActionPreview();
+  if (debugOverlayVisible) renderDebugOverlay();
+}
+
 function setupInteraction(): void {
   const canvas = renderer["app"].canvas as HTMLCanvasElement;
 
   canvas.addEventListener("pointerdown", (e) => {
-    if (e.button === 0 && selectedNodeType && !gameState.winner) {
+    if (e.button === 0 && selectedNodeType && gameState && !gameState.winner) {
       const rect = canvas.getBoundingClientRect();
       const screenX = e.clientX - rect.left;
       const screenY = e.clientY - rect.top;
@@ -89,13 +131,9 @@ function setupInteraction(): void {
       y: Math.round(worldPos.y),
     };
 
-    const validation = validatePlaceNode(
-      gameState,
-      config,
-      PLAYER_ID,
-      selectedNodeType,
-      roundedPos,
-    );
+    const validation = gameState
+      ? validatePlaceNode(gameState, config, PLAYER_ID, selectedNodeType, roundedPos)
+      : { valid: false };
 
     showPlacementPreview(roundedPos, validation.valid);
   });
@@ -113,7 +151,7 @@ function setupDebugToggle(): void {
 function renderDebugOverlay(): void {
   debugContainer.removeChildren();
 
-  if (!debugOverlayVisible) return;
+  if (!debugOverlayVisible || !gameState) return;
 
   for (const node of gameState.nodes) {
     const g = new Graphics();
@@ -278,101 +316,28 @@ function createUI(): void {
     pointer-events: auto;
   `;
 
-  const nextTickBtn = document.createElement("button");
-  nextTickBtn.textContent = "Next Tick";
-  nextTickBtn.style.cssText = `
-    padding: 8px 16px; border: 2px solid #4a4e69;
-    background: #16213e; color: #e0e0e0; cursor: pointer;
-    border-radius: 4px; font-family: monospace; font-size: 13px;
-  `;
-  nextTickBtn.addEventListener("click", () => advanceTick());
-  controls.appendChild(nextTickBtn);
-
-  const autoBtn = document.createElement("button");
-  autoBtn.textContent = "Auto: OFF";
-  autoBtn.id = "auto-btn";
-  autoBtn.style.cssText = `
-    padding: 8px 16px; border: 2px solid #4a4e69;
-    background: #16213e; color: #e0e0e0; cursor: pointer;
-    border-radius: 4px; font-family: monospace; font-size: 13px;
-  `;
-  autoBtn.addEventListener("click", () => toggleAutoTick());
-  controls.appendChild(autoBtn);
-
   const executeBtn = document.createElement("button");
-  executeBtn.textContent = `Execute Actions (${queuedActions.length})`;
+  executeBtn.textContent = `Execute Actions (0)`;
   executeBtn.id = "execute-btn";
   executeBtn.style.cssText = `
     padding: 8px 16px; border: 2px solid #e94560;
     background: #16213e; color: #e94560; cursor: pointer;
     border-radius: 4px; font-family: monospace; font-size: 13px;
+    display: none;
   `;
   executeBtn.addEventListener("click", () => {
-    advanceTick();
-    queuedActions = [];
-    updateActionPreview();
+    if (queuedActions.length > 0) {
+      connection.queueActions(queuedActions);
+      actionsSentThisTick = true;
+      queuedActions = [];
+      updateActionPreview();
+    }
   });
   controls.appendChild(executeBtn);
 
   uiDiv.appendChild(controls);
 
-  const scenarioPanel = createScenarioPanel();
-  uiDiv.appendChild(scenarioPanel);
-
   document.body.appendChild(uiDiv);
-}
-
-function createScenarioPanel(): HTMLElement {
-  const panel = document.createElement("div");
-  panel.id = "scenario-panel";
-  panel.style.cssText = `
-    position: absolute; top: 10px; right: 10px;
-    background: rgba(0,0,0,0.7); padding: 10px 15px;
-    border-radius: 5px; pointer-events: auto;
-    font-family: monospace; font-size: 13px; min-width: 180px;
-  `;
-
-  const title = document.createElement("div");
-  title.textContent = "Scenarios";
-  title.style.cssText = `font-size: 14px; font-weight: bold; margin-bottom: 8px; color: #4ecdc4;`;
-  panel.appendChild(title);
-
-  for (const scenario of SCENARIOS) {
-    const entry = document.createElement("div");
-    entry.style.cssText = `margin-bottom: 6px;`;
-
-    const name = document.createElement("div");
-    name.textContent = scenario.name;
-    name.style.cssText = `color: #e0e0e0; font-weight: bold;`;
-    entry.appendChild(name);
-
-    const desc = document.createElement("div");
-    desc.textContent = scenario.description;
-    desc.style.cssText = `color: #888; font-size: 11px; margin-bottom: 4px;`;
-    entry.appendChild(desc);
-
-    const loadBtn = document.createElement("button");
-    loadBtn.textContent = "Load";
-    loadBtn.style.cssText = `
-      padding: 4px 12px; border: 2px solid #4ecdc4;
-      background: #16213e; color: #4ecdc4; cursor: pointer;
-      border-radius: 4px; font-family: monospace; font-size: 11px;
-    `;
-    loadBtn.addEventListener("click", () => {
-      if (tickMode === "auto") toggleAutoTick();
-      gameState = loadScenario(config, scenario);
-      queuedActions = [];
-      updateActionPreview();
-      renderer.render(gameState, config);
-      updateHUD();
-      if (debugOverlayVisible) renderDebugOverlay();
-    });
-    entry.appendChild(loadBtn);
-
-    panel.appendChild(entry);
-  }
-
-  return panel;
 }
 
 function updatePaletteSelection(): void {
@@ -393,7 +358,7 @@ function updateActionPreview(): void {
   const executeBtn = document.getElementById("execute-btn") as HTMLElement;
   if (executeBtn) {
     executeBtn.textContent = `Execute Actions (${queuedActions.length})`;
-    executeBtn.style.display = queuedActions.length > 0 ? "block" : "none";
+    executeBtn.style.display = queuedActions.length > 0 && !actionsSentThisTick ? "block" : "none";
   }
 }
 
@@ -401,11 +366,39 @@ function updateHUD(): void {
   const hud = document.getElementById("hud");
   if (!hud) return;
 
-  const player = gameState.players.find((p) => p.id === PLAYER_ID);
+  const player = gameState?.players.find((p) => p.id === PLAYER_ID);
   const resources = player ? player.resources : 0;
 
+  const statusColor: Record<ConnectionStatus, string> = {
+    connected: "#53d769",
+    reconnecting: "#ff8c00",
+    disconnected: "#e94560",
+  };
+
+  let statusLine = `<div>Connection: <span style="color:${statusColor[connectionStatus]}">${connectionStatus}</span></div>`;
+
+  let tickLine = "";
+  if (gameState) {
+    tickLine = `<div>Tick: <span style="color:#e94560">${gameState.tick}</span></div>`;
+  }
+
+  let countdownLine = "";
+  if (secondsRemaining !== null) {
+    countdownLine = `<div>Next tick: <span style="color:#4ecdc4">${secondsRemaining}s</span></div>`;
+  }
+
+  let waitingLine = "";
+  if (waitingForOpponent) {
+    waitingLine = `<div style="color:#ff8c00">Waiting for opponent...</div>`;
+  }
+
+  let actionsLine = "";
+  if (actionsSentThisTick) {
+    actionsLine = `<div style="color:#53d769">Actions queued for next tick</div>`;
+  }
+
   let winnerText = "";
-  if (gameState.winner) {
+  if (gameState?.winner) {
     const isPlayerWin = gameState.winner === PLAYER_ID;
     winnerText = isPlayerWin
       ? `<div style="color:#53d769;font-weight:bold;margin-top:4px;">VICTORY!</div>`
@@ -413,48 +406,15 @@ function updateHUD(): void {
   }
 
   hud.innerHTML = `
+    ${statusLine}
+    ${tickLine}
     <div>Resources: <span style="color:#53d769">${resources}</span> / ${config.resourceCap}</div>
-    <div>Tick: <span style="color:#e94560">${gameState.tick}</span></div>
-    <div>Mode: <span style="color:#4ecdc4">${tickMode}</span></div>
     <div>Queued: ${queuedActions.length} action(s)</div>
+    ${countdownLine}
+    ${waitingLine}
+    ${actionsLine}
     ${winnerText}
   `;
-}
-
-function advanceTick(): void {
-  if (gameState.winner) return;
-
-  const playerActions = new Map<string, GameAction[]>();
-  if (queuedActions.length > 0) {
-    playerActions.set(PLAYER_ID, [...queuedActions]);
-  }
-  gameState = simulateTick(gameState, playerActions, config);
-  queuedActions = [];
-  updateActionPreview();
-  renderer.render(gameState, config);
-  updateHUD();
-  if (debugOverlayVisible) renderDebugOverlay();
-}
-
-function toggleAutoTick(): void {
-  const autoBtn = document.getElementById("auto-btn") as HTMLElement;
-
-  if (tickMode === "auto") {
-    tickMode = "manual";
-    if (autoTickInterval) {
-      clearInterval(autoTickInterval);
-      autoTickInterval = null;
-    }
-    if (autoBtn) autoBtn.textContent = "Auto: OFF";
-  } else {
-    tickMode = "auto";
-    autoTickInterval = setInterval(() => {
-      advanceTick();
-    }, config.tickDurationMs);
-    if (autoBtn) autoBtn.textContent = "Auto: ON";
-  }
-
-  updateHUD();
 }
 
 init();

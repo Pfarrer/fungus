@@ -1,7 +1,7 @@
 # multiplayer-sync Specification
 
 ## Purpose
-TBD - created by archiving change core-game. Update Purpose after archive.
+Defines the WebSocket protocol for multiplayer synchronization between client and server, including action submission, state broadcast, tick countdowns, and reconnection handling.
 ## Requirements
 ### Requirement: WebSocket connection
 The client SHALL connect to the server via WebSocket. The server SHALL accept WebSocket connections and associate each connection with a player in a match.
@@ -22,11 +22,11 @@ Clients SHALL send queued actions to the server via WebSocket messages. The mess
 - **THEN** the server appends those actions to the player's queue for the current tick
 
 ### Requirement: State broadcast protocol
-The server SHALL broadcast the full game state to all connected clients after each tick resolves. The message format SHALL be `{ type: "tick-result", state: GameState, tick: number }`.
+The server SHALL broadcast the full game state to all connected clients after each tick resolves. The message format SHALL be `{ type: "tick-result", gameState: GameState }`.
 
 #### Scenario: Tick result broadcast
 - **WHEN** a tick completes simulation
-- **THEN** the server sends `{ type: "tick-result", state: <new state>, tick: <tick number> }` to all connected clients
+- **THEN** the server sends `{ type: "tick-result", gameState: <new state> }` to all connected clients
 
 ### Requirement: Tick countdown notification
 The server SHALL send a countdown notification to clients indicating time remaining until the next tick. The message format SHALL be `{ type: "tick-countdown", secondsRemaining: number }`.

@@ -5,6 +5,11 @@
       "source": "vercel-labs/skills",
       "sourceType": "github",
       "computedHash": "d31e234f0c90694a670222cdd1dafa853e051d7066beda389f1097c22dadd461"
+    },
+    "openspec": {
+      "source": "itechmeat/llm-code",
+      "sourceType": "github",
+      "computedHash": "2f9734a952cbec9682ba04c7f0d2b3957be00ed56f63ddf647010fccf9d873bc"
     }
   }
 }
