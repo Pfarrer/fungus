@@ -59,10 +59,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
       - uses: docker/build-push-action@v6
         with:
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/fungus/server:sha-${{ github.sha }}
+          tags: ghcr.io/${{ env.OWNER }}/fungus/server:sha-${{ github.sha }}
 
   canary-release:
     needs: build
