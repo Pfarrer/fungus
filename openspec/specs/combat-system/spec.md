@@ -1,8 +1,5 @@
-# combat-system Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change core-game. Update Purpose after archive.
-## Requirements
 ### Requirement: Turret targeting
 Turrets SHALL target the nearest enemy node or edge within their attack range. The attack range SHALL be defined per turret type in game configuration.
 
@@ -46,4 +43,3 @@ Within a tick, combat SHALL resolve as: (1) turrets consume resources, (2) turre
 #### Scenario: Damage applied before removal
 - **WHEN** an enemy node takes lethal damage from two turrets in the same tick
 - **THEN** the node is destroyed at the end of combat resolution (not mid-tick), and both turrets' damage is fully applied (no wasted damage from the second turret hitting a dead target)
-

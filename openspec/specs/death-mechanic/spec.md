@@ -1,8 +1,5 @@
-# death-mechanic Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change core-game. Update Purpose after archive.
-## Requirements
 ### Requirement: Disconnected subtree detection
 After each tick's combat resolution, the system SHALL detect any nodes that are no longer connected (via edges) to their player's root node. These nodes and their edges form a disconnected subtree.
 
@@ -42,4 +39,3 @@ When a player's root node is destroyed, that player SHALL lose the match immedia
 #### Scenario: Root disconnected
 - **WHEN** the root node is disconnected from itself (impossible by definition, but the root itself can only be destroyed, not disconnected)
 - **THEN** N/A — the root can only be destroyed via damage
-
