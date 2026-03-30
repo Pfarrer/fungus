@@ -1,0 +1,9 @@
+node_modules
+.git
+dist
+*.md
+.github
+.opencode
+.agents
+.codex
+openspec
