@@ -40,6 +40,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run build
       - run: npx vite build
         working-directory: packages/client
       - uses: actions/configure-pages@v5
