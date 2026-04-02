@@ -27,7 +27,7 @@ Each turret SHALL deal a fixed amount of damage per tick to its target, defined 
 - **THEN** the enemy node's health becomes 4
 
 ### Requirement: Shield damage reduction
-Shield nodes SHALL reduce incoming damage to their parent and child nodes in the tree by a percentage defined in game configuration. Shield effect SHALL stack additively (e.g., two 20% shields on the same node provide 40% reduction).
+Shield nodes SHALL reduce incoming damage to their parent and child nodes in the tree by a percentage defined in game configuration. Shield effect SHALL stack additively up to the `maxShieldReductionPercent` cap. Shield nodes SHALL visually indicate which nodes they protect.
 
 #### Scenario: Shield reduces damage
 - **WHEN** a node with a 20% shield receives 10 damage
@@ -36,6 +36,10 @@ Shield nodes SHALL reduce incoming damage to their parent and child nodes in the
 #### Scenario: Multiple shields stack
 - **WHEN** a node has two shield neighbors providing 20% reduction each, and receives 10 damage
 - **THEN** the node takes 6 damage (40% reduction)
+
+#### Scenario: Shield reduction capped
+- **WHEN** a node has shields providing 120% total reduction and maxShieldReductionPercent is 90
+- **THEN** the node takes 1 damage from a 10 damage attack (90% reduction)
 
 ### Requirement: Combat resolution order
 Within a tick, combat SHALL resolve as: (1) turrets consume resources, (2) turrets select targets, (3) shield calculations reduce damage, (4) damage is applied to targets. All combat in a single tick SHALL be resolved before any node/edge removal.
