@@ -13,6 +13,26 @@ export interface ServerMessageMap {
 export type ServerMessageType = keyof ServerMessageMap;
 export type MessageHandler<T extends ServerMessageType> = (data: ServerMessageMap[T]) => void;
 
+export async function decodeServerMessageData(data: unknown): Promise<string | null> {
+  if (typeof data === "string") {
+    return data;
+  }
+
+  if (data instanceof Blob) {
+    return data.text();
+  }
+
+  if (data instanceof ArrayBuffer) {
+    return new TextDecoder().decode(data);
+  }
+
+  if (ArrayBuffer.isView(data)) {
+    return new TextDecoder().decode(data);
+  }
+
+  return null;
+}
+
 export class GameConnection {
   private url: string;
   private ws: WebSocket | null = null;
@@ -35,24 +55,19 @@ export class GameConnection {
     this.cleanup();
 
     this.ws = new WebSocket(this.url);
-
     this.ws.onopen = () => {
       this.reconnectAttempts = 0;
       this.setStatus("connected");
     };
 
-    this.ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data as string);
-        if (msg.type && this.handlers.has(msg.type)) {
-          const handlers = this.handlers.get(msg.type)!;
-          for (const handler of handlers) {
-            handler(msg);
-          }
-        }
-      } catch {
-        console.error("Failed to parse server message");
+    this.ws.onmessage = async (event: MessageEvent) => {
+      const text = await decodeServerMessageData(event.data);
+      if (text === null) {
+        console.error("Received unsupported server message payload:", event.data);
+        return;
       }
+
+      this.handleMessage(text);
     };
 
     this.ws.onclose = () => {
@@ -63,6 +78,27 @@ export class GameConnection {
     this.ws.onerror = () => {
       this.ws?.close();
     };
+  }
+
+  private handleMessage(text: string): void {
+    let msg: any;
+    try {
+      msg = JSON.parse(text);
+    } catch (e) {
+      console.error("Failed to parse server message:", e, "\nraw type:", typeof text, "\nlen:", text.length, "\nfirst 300:", text.slice(0, 300));
+      return;
+    }
+
+    if (msg.type && this.handlers.has(msg.type)) {
+      const handlers = this.handlers.get(msg.type)!;
+      for (const handler of handlers) {
+        try {
+          handler(msg);
+        } catch (e) {
+          console.error(`Error in "${msg.type}" handler:`, e);
+        }
+      }
+    }
   }
 
   disconnect(): void {

@@ -7,11 +7,13 @@ import {
   validatePlaceNode,
 } from "@fungus/game";
 import type { GameState, GameAction, GameConfig } from "@fungus/game";
+import { computeStateDiffs } from "./state-diff.js";
 
 const PLAYER_ID = new URLSearchParams(window.location.search).get("playerId") ?? "player-1";
 const MATCH_ID = new URLSearchParams(window.location.search).get("matchId") ?? "match-1";
 
 let gameState: GameState | null = null;
+let previousGameState: GameState | null = null;
 let config: GameConfig = defaultGameConfig;
 let renderer: GameRenderer;
 let selectedNodeType: string | null = null;
@@ -20,8 +22,10 @@ let debugOverlayVisible = false;
 const debugContainer = new Container();
 let connectionStatus: ConnectionStatus = "disconnected";
 let waitingForOpponent = false;
-let secondsRemaining: number | null = null;
+let smoothCountdownValue: number | null = null;
+let countdownInterval: ReturnType<typeof setInterval> | null = null;
 let actionsSentThisTick = false;
+let matchEndShown = false;
 
 const previewContainer = new Container();
 let previewGraphics: Graphics | null = null;
@@ -46,19 +50,32 @@ function setupConnection(): void {
   connection = new GameConnection(wsUrl);
 
   connection.on("match-state", (data) => {
+    previousGameState = gameState;
     gameState = data.gameState;
     renderState();
   });
 
   connection.on("tick-result", (data) => {
+    previousGameState = gameState;
     gameState = data.gameState;
-    secondsRemaining = null;
+    smoothCountdownValue = null;
+    clearCountdownInterval();
     actionsSentThisTick = false;
+
+    if (previousGameState) {
+      const effects = computeStateDiffs(previousGameState, gameState);
+      for (const effect of effects) {
+        renderer.addEffect(effect);
+      }
+      renderer.updateHealthTargets(gameState.nodes);
+    }
+
     renderState();
   });
 
   connection.on("tick-countdown", (data) => {
-    secondsRemaining = data.secondsRemaining;
+    smoothCountdownValue = data.secondsRemaining;
+    startCountdownInterval();
     updateHUD();
   });
 
@@ -75,6 +92,30 @@ function setupConnection(): void {
   connection.connect();
 }
 
+function startCountdownInterval(): void {
+  clearCountdownInterval();
+  countdownInterval = setInterval(() => {
+    if (smoothCountdownValue !== null && smoothCountdownValue > 0) {
+      smoothCountdownValue = Math.max(0, smoothCountdownValue - 0.1);
+      updateCountdownDisplay();
+    }
+  }, 100);
+}
+
+function clearCountdownInterval(): void {
+  if (countdownInterval !== null) {
+    clearInterval(countdownInterval);
+    countdownInterval = null;
+  }
+}
+
+function updateCountdownDisplay(): void {
+  const el = document.getElementById("countdown-value");
+  if (el && smoothCountdownValue !== null) {
+    el.textContent = smoothCountdownValue.toFixed(1);
+  }
+}
+
 function renderState(): void {
   if (!gameState) return;
   waitingForOpponent = false;
@@ -82,6 +123,66 @@ function renderState(): void {
   updateHUD();
   updateActionPreview();
   if (debugOverlayVisible) renderDebugOverlay();
+  checkMatchEnd();
+}
+
+function checkMatchEnd(): void {
+  if (gameState?.winner && !matchEndShown) {
+    matchEndShown = true;
+    showMatchEndScreen();
+  }
+}
+
+function showMatchEndScreen(): void {
+  const existing = document.getElementById("match-end-screen");
+  if (existing) return;
+
+  const overlay = document.createElement("div");
+  overlay.id = "match-end-screen";
+  overlay.style.cssText = `
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.85); display: flex; flex-direction: column;
+    align-items: center; justify-content: center; z-index: 200;
+    font-family: monospace; color: #e0e0e0;
+  `;
+
+  const isVictory = gameState?.winner === PLAYER_ID;
+  const title = document.createElement("h1");
+  title.textContent = isVictory ? "Victory!" : "Defeat!";
+  title.style.cssText = `
+    font-size: 48px; margin-bottom: 20px;
+    color: ${isVictory ? "#53d769" : "#e94560"};
+  `;
+  overlay.appendChild(title);
+
+  const stats = document.createElement("div");
+  stats.style.cssText = `font-size: 16px; line-height: 1.8; text-align: center; margin-bottom: 30px;`;
+  stats.innerHTML = `
+    <div>Tick: <span style="color:#4ecdc4">${gameState?.tick ?? 0}</span></div>
+    <div>Your nodes: <span style="color:#53d769">${gameState?.nodes.filter((n) => n.playerId === PLAYER_ID).length ?? 0}</span></div>
+    <div>Resources: <span style="color:#53d769">${gameState?.players.find((p) => p.id === PLAYER_ID)?.resources ?? 0}</span></div>
+  `;
+  overlay.appendChild(stats);
+
+  const newMatchBtn = document.createElement("button");
+  newMatchBtn.textContent = "New Match";
+  newMatchBtn.style.cssText = `
+    padding: 12px 32px; border: 2px solid #4ecdc4;
+    background: #16213e; color: #4ecdc4; cursor: pointer;
+    border-radius: 6px; font-family: monospace; font-size: 18px;
+    pointer-events: auto;
+  `;
+  newMatchBtn.addEventListener("click", () => {
+    window.location.reload();
+  });
+  overlay.appendChild(newMatchBtn);
+
+  const hud = document.getElementById("hud");
+  if (hud) hud.style.display = "none";
+  const palette = document.getElementById("palette");
+  if (palette) palette.style.display = "none";
+
+  document.body.appendChild(overlay);
 }
 
 function setupInteraction(): void {
@@ -273,7 +374,7 @@ function createUI(): void {
     position: absolute; top: 10px; left: 10px;
     background: rgba(0,0,0,0.7); padding: 10px 15px;
     border-radius: 5px; font-size: 14px; line-height: 1.6;
-    pointer-events: auto;
+    pointer-events: auto; min-width: 220px;
   `;
   uiDiv.appendChild(hud);
 
@@ -331,6 +432,7 @@ function createUI(): void {
       actionsSentThisTick = true;
       queuedActions = [];
       updateActionPreview();
+      updateHUD();
     }
   });
   controls.appendChild(executeBtn);
@@ -375,46 +477,57 @@ function updateHUD(): void {
     disconnected: "#e94560",
   };
 
-  let statusLine = `<div>Connection: <span style="color:${statusColor[connectionStatus]}">${connectionStatus}</span></div>`;
+  let html = "";
 
-  let tickLine = "";
+  html += `<div>Connection: <span style="color:${statusColor[connectionStatus]}">${connectionStatus}</span></div>`;
+
   if (gameState) {
-    tickLine = `<div>Tick: <span style="color:#e94560">${gameState.tick}</span></div>`;
+    html += `<div>Tick: <span style="color:#e94560">${gameState.tick}</span></div>`;
   }
 
-  let countdownLine = "";
-  if (secondsRemaining !== null) {
-    countdownLine = `<div>Next tick: <span style="color:#4ecdc4">${secondsRemaining}s</span></div>`;
+  html += `<div>Resources: <span style="color:#53d769">${resources}</span> / ${config.resourceCap}</div>`;
+
+  if (smoothCountdownValue !== null) {
+    html += `<div>Next tick: <span style="color:#4ecdc4" id="countdown-value">${smoothCountdownValue.toFixed(1)}</span>s</div>`;
   }
 
-  let waitingLine = "";
+  html += `<div>Queued: ${queuedActions.length} action(s)</div>`;
+
+  if (queuedActions.length > 0) {
+    html += `<div style="margin-top:4px;font-size:12px;color:#999;">`;
+    for (const action of queuedActions) {
+      html += `<div>Place ${action.nodeType} at (${action.position.x}, ${action.position.y})</div>`;
+    }
+    html += `</div>`;
+  }
+
+  if (gameState) {
+    const enemyNodes = gameState.nodes.filter((n) => n.playerId !== PLAYER_ID);
+    const enemyByType: Record<string, number> = { root: 0, generator: 0, turret: 0, shield: 0 };
+    for (const node of enemyNodes) {
+      enemyByType[node.nodeType] = (enemyByType[node.nodeType] ?? 0) + 1;
+    }
+    html += `<div style="margin-top:6px;font-size:12px;color:#999;">`;
+    html += `<div style="color:#ccc;">Enemy: R:${enemyByType.root} G:${enemyByType.generator} T:${enemyByType.turret} S:${enemyByType.shield}</div>`;
+    html += `</div>`;
+  }
+
   if (waitingForOpponent) {
-    waitingLine = `<div style="color:#ff8c00">Waiting for opponent...</div>`;
+    html += `<div style="color:#ff8c00">Waiting for opponent...</div>`;
   }
 
-  let actionsLine = "";
   if (actionsSentThisTick) {
-    actionsLine = `<div style="color:#53d769">Actions queued for next tick</div>`;
+    html += `<div style="color:#53d769">Actions queued for next tick</div>`;
   }
 
-  let winnerText = "";
   if (gameState?.winner) {
     const isPlayerWin = gameState.winner === PLAYER_ID;
-    winnerText = isPlayerWin
+    html += isPlayerWin
       ? `<div style="color:#53d769;font-weight:bold;margin-top:4px;">VICTORY!</div>`
       : `<div style="color:#e94560;font-weight:bold;margin-top:4px;">DEFEAT!</div>`;
   }
 
-  hud.innerHTML = `
-    ${statusLine}
-    ${tickLine}
-    <div>Resources: <span style="color:#53d769">${resources}</span> / ${config.resourceCap}</div>
-    <div>Queued: ${queuedActions.length} action(s)</div>
-    ${countdownLine}
-    ${waitingLine}
-    ${actionsLine}
-    ${winnerText}
-  `;
+  hud.innerHTML = html;
 }
 
 init();

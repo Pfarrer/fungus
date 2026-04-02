@@ -1,5 +1,7 @@
 import { Application, Container, Graphics } from "pixi.js";
 import type { GameState, GameConfig, Node as GameNode, Edge as GameEdge } from "@fungus/game";
+import type { VisualEffect } from "./effects.js";
+import { MAX_EFFECTS } from "./effects.js";
 
 const MAP_BG_COLOR = 0x16213e;
 const MAP_BORDER_COLOR = 0x0f3460;
@@ -11,6 +13,7 @@ const TURRET_COLOR = 0xff8c00;
 const TURRET_RADIUS = 9;
 const SHIELD_COLOR = 0x00bfff;
 const SHIELD_RADIUS = 9;
+const SHIELD_AURA_COLOR = 0x00bfff;
 const EDGE_COLOR = 0x4a4e69;
 const EDGE_DAMAGED_COLOR = 0xe94560;
 const EDGE_WIDTH = 2;
@@ -18,6 +21,13 @@ const HEALTH_BG_COLOR = 0x333333;
 const HEALTH_FG_COLOR = 0x00ff00;
 const HEALTH_BAR_WIDTH = 24;
 const HEALTH_BAR_HEIGHT = 3;
+const HEALTH_LERP_DURATION = 200;
+
+interface HealthLerp {
+  from: number;
+  to: number;
+  elapsed: number;
+}
 
 export class GameRenderer {
   private app: Application;
@@ -25,8 +35,15 @@ export class GameRenderer {
   private mapGraphics: Graphics;
   private edgesContainer: Container;
   private nodesContainer: Container;
+  private effectsContainer: Container;
   private isDragging = false;
   private lastDragPos = { x: 0, y: 0 };
+  private effects: VisualEffect[] = [];
+  private healthLerps: Map<string, HealthLerp> = new Map();
+  private prevHealthMap: Map<string, number> = new Map();
+  private shieldPulseTime = 0;
+  private currentNodeState: GameNode[] = [];
+  private currentConfig: GameConfig | null = null;
 
   constructor() {
     this.app = new Application();
@@ -34,6 +51,7 @@ export class GameRenderer {
     this.mapGraphics = new Graphics();
     this.edgesContainer = new Container();
     this.nodesContainer = new Container();
+    this.effectsContainer = new Container();
   }
 
   async init(canvasContainer: HTMLElement): Promise<void> {
@@ -48,15 +66,148 @@ export class GameRenderer {
     this.world.addChild(this.mapGraphics);
     this.world.addChild(this.edgesContainer);
     this.world.addChild(this.nodesContainer);
+    this.world.addChild(this.effectsContainer);
     this.app.stage.addChild(this.world);
 
+    this.app.ticker.add(this.processFrame.bind(this));
     this.setupCamera();
   }
 
+  addEffect(effect: VisualEffect): void {
+    if (this.effects.length >= MAX_EFFECTS) {
+      this.effects.shift();
+    }
+    this.effects.push(effect);
+  }
+
+  updateHealthTargets(nodes: GameNode[]): void {
+    for (const node of nodes) {
+      const prev = this.prevHealthMap.get(node.id);
+      if (prev !== undefined && prev !== node.health) {
+        this.healthLerps.set(node.id, {
+          from: prev,
+          to: node.health,
+          elapsed: 0,
+        });
+      } else {
+        this.healthLerps.delete(node.id);
+      }
+      this.prevHealthMap.set(node.id, node.health);
+    }
+  }
+
+  private processFrame(): void {
+    try {
+      const dt = this.app.ticker.elapsedMS;
+      this.shieldPulseTime += dt;
+
+      this.updateEffects(dt);
+      this.renderEffects();
+
+      if (this.currentNodeState.length > 0 && this.currentConfig) {
+        this.renderHealthBars(this.currentNodeState);
+      }
+    } catch (e) {
+      console.error("Renderer processFrame error:", e);
+    }
+  }
+
+  private updateEffects(dt: number): void {
+    for (let i = this.effects.length - 1; i >= 0; i--) {
+      this.effects[i].elapsed += dt;
+      if (this.effects[i].elapsed >= this.effects[i].duration) {
+        this.effects.splice(i, 1);
+      }
+    }
+  }
+
+  private renderEffects(): void {
+    while (this.effectsContainer.children.length > this.effects.length) {
+      const child = this.effectsContainer.getChildAt(this.effectsContainer.children.length - 1);
+      this.effectsContainer.removeChild(child);
+      (child as Graphics).destroy();
+    }
+
+    while (this.effectsContainer.children.length < this.effects.length) {
+      const g = new Graphics();
+      this.effectsContainer.addChild(g);
+    }
+
+    for (let i = 0; i < this.effects.length; i++) {
+      const effect = this.effects[i];
+      const g = this.effectsContainer.getChildAt(i) as Graphics;
+      const progress = Math.min(1, effect.elapsed / effect.duration);
+
+      g.clear();
+
+      switch (effect.type) {
+        case "DamageFlash": {
+          const alpha = 1 - progress;
+          g.circle(effect.x, effect.y, 14);
+          g.fill({ color: 0xffffff, alpha });
+          break;
+        }
+        case "NodeDeath": {
+          const alpha = 1 - progress;
+          const expandedRadius = effect.radius * (1 + progress * 0.8);
+          g.circle(effect.x, effect.y, expandedRadius);
+          g.fill({ color: effect.color, alpha });
+          break;
+        }
+        case "EdgeBreak": {
+          const alpha = 1 - progress;
+          g.moveTo(effect.fromX, effect.fromY);
+          g.lineTo(effect.toX, effect.toY);
+          g.stroke({ color: 0xff0000, width: 3, alpha });
+          break;
+        }
+      }
+    }
+  }
+
+  private renderHealthBars(nodes: GameNode[]): void {
+    const nodeContainers = this.nodesContainer.children as Container[];
+    const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+
+    for (const container of nodeContainers) {
+      const nodeId = container.label;
+      if (!nodeId) continue;
+
+      const node = nodeMap.get(nodeId);
+      if (!node) continue;
+
+      const lerp = this.healthLerps.get(nodeId);
+      let currentHealth: number;
+
+      if (lerp) {
+        lerp.elapsed += this.app.ticker.elapsedMS;
+        const t = Math.min(1, lerp.elapsed / HEALTH_LERP_DURATION);
+        currentHealth = lerp.from + (lerp.to - lerp.from) * t;
+
+        if (lerp.elapsed >= HEALTH_LERP_DURATION) {
+          this.healthLerps.delete(nodeId);
+        }
+      } else {
+        currentHealth = node.health;
+      }
+
+      const healthBarIndex = container.children.length - 1;
+      if (healthBarIndex < 0) continue;
+
+      const bar = container.getChildAt(healthBarIndex) as Graphics;
+      if (bar) {
+        this.redrawHealthBar(bar, currentHealth, node.maxHealth, HEALTH_BAR_WIDTH);
+      }
+    }
+  }
+
   render(state: GameState, config: GameConfig): void {
+    this.currentNodeState = state.nodes;
+    this.currentConfig = config;
+
     this.renderMap(config);
     this.renderEdges(state.edges, state.nodes);
-    this.renderNodes(state.nodes);
+    this.renderNodes(state.nodes, config);
   }
 
   private renderMap(config: GameConfig): void {
@@ -68,8 +219,15 @@ export class GameRenderer {
     this.mapGraphics.stroke({ color: MAP_BORDER_COLOR, width: 2 });
   }
 
+  private destroyChildren(container: Container): void {
+    const children = container.removeChildren();
+    for (const child of children) {
+      (child as Graphics).destroy();
+    }
+  }
+
   private renderEdges(edges: GameEdge[], nodes: GameNode[]): void {
-    this.edgesContainer.removeChildren();
+    this.destroyChildren(this.edgesContainer);
 
     const nodeMap = new Map(nodes.map((n) => [n.id, n]));
 
@@ -91,11 +249,25 @@ export class GameRenderer {
     }
   }
 
-  private renderNodes(nodes: GameNode[]): void {
-    this.nodesContainer.removeChildren();
+  private renderNodes(nodes: GameNode[], config: GameConfig): void {
+    this.destroyChildren(this.nodesContainer);
+
+    const shieldNodes = nodes.filter((n) => n.nodeType === "shield" && n.connected);
+    const protectedNodeIds = new Set<string>();
+
+    for (const shield of shieldNodes) {
+      protectedNodeIds.add(shield.id);
+      if (shield.parentId !== null) protectedNodeIds.add(shield.parentId);
+      for (const other of nodes) {
+        if (other.parentId === shield.id) {
+          protectedNodeIds.add(other.id);
+        }
+      }
+    }
 
     for (const node of nodes) {
       const container = new Container();
+      container.label = node.id;
       container.position.set(node.position.x, node.position.y);
 
       let radius: number;
@@ -126,6 +298,23 @@ export class GameRenderer {
       circle.stroke({ color: 0xffffff, width: 1 });
       container.addChild(circle);
 
+      if (node.nodeType === "shield") {
+        const shieldConfig = config.map.nodeTypeConfigs.shield;
+        const auraRadius = shieldConfig?.attackRange ?? 60;
+        const aura = new Graphics();
+        aura.circle(0, 0, auraRadius);
+        aura.stroke({ color: SHIELD_AURA_COLOR, width: 2, alpha: 0.4 });
+        container.addChild(aura);
+      }
+
+      if (protectedNodeIds.has(node.id) && node.nodeType !== "shield") {
+        const pulseAlpha = 0.1 + 0.1 * Math.sin(this.shieldPulseTime / 500);
+        const auraG = new Graphics();
+        auraG.circle(0, 0, this.getRadiusForNodeType(node.nodeType) + 6);
+        auraG.fill({ color: SHIELD_AURA_COLOR, alpha: pulseAlpha });
+        container.addChild(auraG);
+      }
+
       const healthBar = this.createHealthBar(
         node.health,
         node.maxHealth,
@@ -138,20 +327,30 @@ export class GameRenderer {
     }
   }
 
+  private getRadiusForNodeType(nodeType: string): number {
+    switch (nodeType) {
+      case "root": return ROOT_RADIUS;
+      case "turret": return TURRET_RADIUS;
+      case "shield": return SHIELD_RADIUS;
+      default: return GENERATOR_RADIUS;
+    }
+  }
+
   private createHealthBar(current: number, max: number, width: number): Graphics {
     const bar = new Graphics();
+    this.redrawHealthBar(bar, current, max, width);
+    return bar;
+  }
+
+  private redrawHealthBar(bar: Graphics, current: number, max: number, width: number): void {
     const ratio = Math.max(0, Math.min(1, current / max));
-    const barHeight = HEALTH_BAR_HEIGHT;
-
-    bar.rect(0, 0, width, barHeight);
+    bar.clear();
+    bar.rect(0, 0, width, HEALTH_BAR_HEIGHT);
     bar.fill(HEALTH_BG_COLOR);
-
     if (ratio > 0) {
-      bar.rect(0, 0, width * ratio, barHeight);
+      bar.rect(0, 0, width * ratio, HEALTH_BAR_HEIGHT);
       bar.fill(HEALTH_FG_COLOR);
     }
-
-    return bar;
   }
 
   private setupCamera(): void {
