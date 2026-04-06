@@ -12,6 +12,7 @@
     "dev": "concurrently -n server,client -c blue,green \"npm run dev -w @fungus/server\" \"npm run dev -w @fungus/client\""
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "concurrently": "^9.2.1",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
