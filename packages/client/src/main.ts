@@ -17,14 +17,13 @@ let previousGameState: GameState | null = null;
 let config: GameConfig = defaultGameConfig;
 let renderer: GameRenderer;
 let selectedNodeType: string | null = null;
-let queuedActions: GameAction[] = [];
+let pendingActions: GameAction[] = [];
 let debugOverlayVisible = false;
 const debugContainer = new Container();
 let connectionStatus: ConnectionStatus = "disconnected";
 let waitingForOpponent = false;
 let smoothCountdownValue: number | null = null;
 let countdownInterval: ReturnType<typeof setInterval> | null = null;
-let actionsSentThisTick = false;
 let matchEndShown = false;
 
 const previewContainer = new Container();
@@ -60,7 +59,6 @@ function setupConnection(): void {
     gameState = data.gameState;
     smoothCountdownValue = null;
     clearCountdownInterval();
-    actionsSentThisTick = false;
 
     if (previousGameState) {
       const effects = computeStateDiffs(previousGameState, gameState);
@@ -86,6 +84,10 @@ function setupConnection(): void {
 
   connection.onStatusChange((status) => {
     connectionStatus = status;
+    if (status === "connected" && pendingActions.length > 0) {
+      connection.queueActions(pendingActions);
+      pendingActions = [];
+    }
     updateHUD();
   });
 
@@ -121,7 +123,6 @@ function renderState(): void {
   waitingForOpponent = false;
   renderer.render(gameState, config);
   updateHUD();
-  updateActionPreview();
   if (debugOverlayVisible) renderDebugOverlay();
   checkMatchEnd();
 }
@@ -210,8 +211,11 @@ function setupInteraction(): void {
       );
 
       if (validation.valid) {
-        queuedActions.push(action);
-        updateActionPreview();
+        if (connectionStatus === "connected") {
+          connection.queueActions([action]);
+        } else {
+          pendingActions.push(action);
+        }
       }
     }
   });
@@ -408,37 +412,6 @@ function createUI(): void {
 
   uiDiv.appendChild(palette);
 
-  const controls = document.createElement("div");
-  controls.id = "controls";
-  controls.style.cssText = `
-    position: absolute; bottom: 10px; right: 10px;
-    background: rgba(0,0,0,0.7); padding: 10px 15px;
-    border-radius: 5px; display: flex; flex-direction: column; gap: 5px;
-    pointer-events: auto;
-  `;
-
-  const executeBtn = document.createElement("button");
-  executeBtn.textContent = `Execute Actions (0)`;
-  executeBtn.id = "execute-btn";
-  executeBtn.style.cssText = `
-    padding: 8px 16px; border: 2px solid #e94560;
-    background: #16213e; color: #e94560; cursor: pointer;
-    border-radius: 4px; font-family: monospace; font-size: 13px;
-    display: none;
-  `;
-  executeBtn.addEventListener("click", () => {
-    if (queuedActions.length > 0) {
-      connection.queueActions(queuedActions);
-      actionsSentThisTick = true;
-      queuedActions = [];
-      updateActionPreview();
-      updateHUD();
-    }
-  });
-  controls.appendChild(executeBtn);
-
-  uiDiv.appendChild(controls);
-
   document.body.appendChild(uiDiv);
 }
 
@@ -454,14 +427,6 @@ function updatePaletteSelection(): void {
       (btn as HTMLElement).style.background = "#16213e";
     }
   });
-}
-
-function updateActionPreview(): void {
-  const executeBtn = document.getElementById("execute-btn") as HTMLElement;
-  if (executeBtn) {
-    executeBtn.textContent = `Execute Actions (${queuedActions.length})`;
-    executeBtn.style.display = queuedActions.length > 0 && !actionsSentThisTick ? "block" : "none";
-  }
 }
 
 function updateHUD(): void {
@@ -491,16 +456,6 @@ function updateHUD(): void {
     html += `<div>Next tick: <span style="color:#4ecdc4" id="countdown-value">${smoothCountdownValue.toFixed(1)}</span>s</div>`;
   }
 
-  html += `<div>Queued: ${queuedActions.length} action(s)</div>`;
-
-  if (queuedActions.length > 0) {
-    html += `<div style="margin-top:4px;font-size:12px;color:#999;">`;
-    for (const action of queuedActions) {
-      html += `<div>Place ${action.nodeType} at (${action.position.x}, ${action.position.y})</div>`;
-    }
-    html += `</div>`;
-  }
-
   if (gameState) {
     const enemyNodes = gameState.nodes.filter((n) => n.playerId !== PLAYER_ID);
     const enemyByType: Record<string, number> = { root: 0, generator: 0, turret: 0, shield: 0 };
@@ -514,10 +469,6 @@ function updateHUD(): void {
 
   if (waitingForOpponent) {
     html += `<div style="color:#ff8c00">Waiting for opponent...</div>`;
-  }
-
-  if (actionsSentThisTick) {
-    html += `<div style="color:#53d769">Actions queued for next tick</div>`;
   }
 
   if (gameState?.winner) {

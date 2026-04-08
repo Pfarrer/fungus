@@ -668,3 +668,192 @@ describe("GameConnection + computeStateDiffs integration", () => {
     expect(edgeBreakEffect.edgeId).toBe("e1");
   });
 });
+
+describe("Auto-submit: immediate action submission", () => {
+  let servers: WebSocketServer[] = [];
+  let connections: GameConnection[] = [];
+
+  afterEach(async () => {
+    for (const conn of connections) {
+      conn.disconnect();
+    }
+    connections = [];
+    for (const server of servers) {
+      const clients = [...(server as any)._ws?.clients ?? []];
+      for (const c of clients) {
+        if (c.readyState === WsWebSocket.OPEN) c.close();
+      }
+      server.close();
+    }
+    servers = [];
+    await waitFor(100);
+  });
+
+  it("sends a single action immediately via queueActions", async () => {
+    const wss = await createMockServer(0);
+    servers.push(wss);
+    const port = (wss.address() as { port: number }).port;
+
+    const receivedMessages: any[] = [];
+    wss.on("connection", (ws) => {
+      ws.on("message", (data) => {
+        receivedMessages.push(JSON.parse(data.toString()));
+      });
+    });
+
+    const conn = new GameConnection(`ws://localhost:${port}`);
+    connections.push(conn);
+
+    conn.connect();
+    await waitFor(100);
+
+    conn.queueActions([
+      { type: "PlaceNode", nodeType: "generator", position: { x: 60, y: 310 } },
+    ]);
+
+    await waitFor(100);
+
+    expect(receivedMessages.length).toBe(1);
+    expect(receivedMessages[0].type).toBe("queue-actions");
+    expect(receivedMessages[0].actions).toEqual([
+      { type: "PlaceNode", nodeType: "generator", position: { x: 60, y: 310 } },
+    ]);
+  });
+
+  it("sends each action as a separate queue-actions message on rapid placement", async () => {
+    const wss = await createMockServer(0);
+    servers.push(wss);
+    const port = (wss.address() as { port: number }).port;
+
+    const receivedMessages: any[] = [];
+    wss.on("connection", (ws) => {
+      ws.on("message", (data) => {
+        receivedMessages.push(JSON.parse(data.toString()));
+      });
+    });
+
+    const conn = new GameConnection(`ws://localhost:${port}`);
+    connections.push(conn);
+
+    conn.connect();
+    await waitFor(100);
+
+    const action1: import("@fungus/game").GameAction = {
+      type: "PlaceNode",
+      nodeType: "generator",
+      position: { x: 60, y: 310 },
+    };
+    const action2: import("@fungus/game").GameAction = {
+      type: "PlaceNode",
+      nodeType: "turret",
+      position: { x: 70, y: 320 },
+    };
+
+    conn.queueActions([action1]);
+    conn.queueActions([action2]);
+
+    await waitFor(100);
+
+    expect(receivedMessages.length).toBe(2);
+    expect(receivedMessages[0].actions).toEqual([action1]);
+    expect(receivedMessages[1].actions).toEqual([action2]);
+  });
+
+  it("silently drops queueActions when not connected", async () => {
+    const conn = new GameConnection(`ws://localhost:1`);
+    connections.push(conn);
+
+    expect(() => {
+      conn.queueActions([
+        { type: "PlaceNode", nodeType: "generator", position: { x: 60, y: 310 } },
+      ]);
+    }).not.toThrow();
+  });
+
+  it("flushes buffered pending actions when connection is established", async () => {
+    const wss = await createMockServer(0);
+    servers.push(wss);
+    const port = (wss.address() as { port: number }).port;
+
+    const receivedMessages: any[] = [];
+    wss.on("connection", (ws) => {
+      ws.on("message", (data) => {
+        receivedMessages.push(JSON.parse(data.toString()));
+      });
+    });
+
+    const conn = new GameConnection(`ws://localhost:${port}`);
+    connections.push(conn);
+
+    const pendingActions: import("@fungus/game").GameAction[] = [
+      { type: "PlaceNode", nodeType: "generator", position: { x: 60, y: 310 } },
+      { type: "PlaceNode", nodeType: "turret", position: { x: 70, y: 320 } },
+    ];
+
+    conn.onStatusChange((status) => {
+      if (status === "connected" && pendingActions.length > 0) {
+        conn.queueActions(pendingActions);
+        pendingActions.length = 0;
+      }
+    });
+
+    conn.connect();
+    await waitFor(200);
+
+    expect(receivedMessages.length).toBe(1);
+    expect(receivedMessages[0].type).toBe("queue-actions");
+    expect(receivedMessages[0].actions.length).toBe(2);
+    expect(receivedMessages[0].actions[0].nodeType).toBe("generator");
+    expect(receivedMessages[0].actions[1].nodeType).toBe("turret");
+  });
+
+  it("does not re-flush after second connect if pending buffer is cleared", async () => {
+    const wss = await createMockServer(0);
+    servers.push(wss);
+    const port = (wss.address() as { port: number }).port;
+
+    const receivedMessages: any[] = [];
+    wss.on("connection", (ws) => {
+      ws.on("message", (data) => {
+        receivedMessages.push(JSON.parse(data.toString()));
+      });
+    });
+
+    const conn = new GameConnection(`ws://localhost:${port}`);
+    connections.push(conn);
+
+    const pendingActions: import("@fungus/game").GameAction[] = [
+      { type: "PlaceNode", nodeType: "generator", position: { x: 60, y: 310 } },
+    ];
+
+    conn.onStatusChange((status) => {
+      if (status === "connected" && pendingActions.length > 0) {
+        conn.queueActions(pendingActions);
+        pendingActions.length = 0;
+      }
+    });
+
+    conn.connect();
+    await waitFor(200);
+
+    expect(receivedMessages.length).toBe(1);
+
+    conn.disconnect();
+    await waitFor(200);
+
+    const conn2 = new GameConnection(`ws://localhost:${port}`);
+    connections.push(conn2);
+
+    conn2.onStatusChange((status) => {
+      if (status === "connected" && pendingActions.length > 0) {
+        conn2.queueActions(pendingActions);
+        pendingActions.length = 0;
+      }
+    });
+
+    conn2.connect();
+    await waitFor(200);
+
+    expect(receivedMessages.length).toBe(1);
+  });
+});
