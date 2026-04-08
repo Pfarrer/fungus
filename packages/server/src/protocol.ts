@@ -5,6 +5,7 @@ export interface ClientConnection {
   ws: WebSocket;
   matchId: string;
   playerId: string;
+  playerName?: string;
 }
 
 export interface QueueActionsMessage {

@@ -125,4 +125,27 @@ describe("game loop", () => {
       expect(JSON.stringify(result1)).toBe(JSON.stringify(result2));
     });
   });
+
+  describe("player name propagation", () => {
+    it("player name field is preserved through simulateTick", () => {
+      const state = freshState();
+      state.players[0].name = "Alice";
+      state.players[1].name = "Bob";
+
+      const actions = new Map<string, GameAction[]>();
+      const result = simulateTick(state, actions, defaultGameConfig);
+
+      expect(result.players[0].name).toBe("Alice");
+      expect(result.players[1].name).toBe("Bob");
+    });
+
+    it("player name is optional and undefined is acceptable", () => {
+      const state = freshState();
+      expect(state.players[0].name).toBeUndefined();
+
+      const actions = new Map<string, GameAction[]>();
+      const result = simulateTick(state, actions, defaultGameConfig);
+      expect(result.players[0].name).toBeUndefined();
+    });
+  });
 });

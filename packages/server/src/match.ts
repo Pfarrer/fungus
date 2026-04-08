@@ -64,6 +64,13 @@ export class Match {
     }
   }
 
+  setPlayerName(playerId: string, name: string): void {
+    const player = this.gameState.players.find((p) => p.id === playerId);
+    if (player) {
+      player.name = name;
+    }
+  }
+
   playerCount(): number {
     return this.players.size;
   }

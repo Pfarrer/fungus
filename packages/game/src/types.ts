@@ -28,6 +28,7 @@ export interface Player {
   id: string;
   resources: number;
   spawnPoint: Position;
+  name?: string;
 }
 
 export interface GameState {

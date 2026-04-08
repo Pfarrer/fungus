@@ -3,14 +3,20 @@ import { GameRenderer } from "./renderer.js";
 import { GameConnection } from "./connection.js";
 import type { ConnectionStatus } from "./connection.js";
 import {
+  createInitialState,
   defaultGameConfig,
   validatePlaceNode,
 } from "@fungus/game";
 import type { GameState, GameAction, GameConfig } from "@fungus/game";
 import { computeStateDiffs } from "./state-diff.js";
-
-const PLAYER_ID = new URLSearchParams(window.location.search).get("playerId") ?? "player-1";
-const MATCH_ID = new URLSearchParams(window.location.search).get("matchId") ?? "match-1";
+import { ScreenManager } from "./screen-manager.js";
+import { LocalGameLoop } from "./local-game-loop.js";
+import {
+  showMenu,
+  renderHostingScreen,
+  showJoinError,
+  hideMenu,
+} from "./menu.js";
 
 let gameState: GameState | null = null;
 let previousGameState: GameState | null = null;
@@ -29,28 +35,136 @@ let matchEndShown = false;
 const previewContainer = new Container();
 let previewGraphics: Graphics | null = null;
 
-let connection: GameConnection;
+let connection: GameConnection | null = null;
+let localLoop: LocalGameLoop | null = null;
+let screenManager: ScreenManager;
+let currentPlayerId: string | null = null;
 
 function init(): void {
   renderer = new GameRenderer();
   const appEl = document.getElementById("app")!;
+  screenManager = new ScreenManager();
 
   renderer.init(appEl).then(() => {
-    setupConnection();
     setupInteraction();
     setupDebugToggle();
-    createUI();
-    updateHUD();
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlMatchId = urlParams.get("matchId");
+    const urlPlayerId = urlParams.get("playerId");
+
+    if (urlMatchId && urlPlayerId) {
+      currentPlayerId = urlPlayerId;
+      screenManager.transition("playing");
+      setupConnection(urlMatchId, urlPlayerId);
+      createUI();
+      updateHUD();
+    } else {
+      showMenu({
+        onSinglePlayer: (playerName: string) => {
+          currentPlayerId = "player-1";
+          startSinglePlayer(playerName);
+        },
+        onHostGame: (playerName: string) => {
+          startHosting(playerName);
+        },
+        onJoinGame: (playerName: string, code: string) => {
+          startJoining(playerName, code);
+        },
+      });
+    }
   });
 }
 
-function setupConnection(): void {
-  const wsUrl = `ws://localhost:3001?matchId=${encodeURIComponent(MATCH_ID)}&playerId=${encodeURIComponent(PLAYER_ID)}`;
+async function startSinglePlayer(playerName: string): Promise<void> {
+  const state = createInitialState(config);
+  state.players[0].name = playerName;
+  gameState = state;
+
+  screenManager.transition("playing");
+  hideMenu();
+  createUI();
+  updateHUD();
+
+  localLoop = new LocalGameLoop((newState) => {
+    previousGameState = gameState;
+    gameState = newState;
+    renderState();
+  }, config, state);
+
+  localLoop.start();
+  connectionStatus = "connected";
+}
+
+async function startHosting(playerName: string): Promise<void> {
+  try {
+    const response = await fetch("http://localhost:3001/host", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playerName }),
+    });
+    const data = await response.json();
+    const { code, matchId, playerId } = data;
+
+    currentPlayerId = playerId;
+    renderHostingScreen(code);
+
+    const url = new URL(window.location.href);
+    url.searchParams.set("matchId", matchId);
+    url.searchParams.set("playerId", playerId);
+    window.history.replaceState({}, "", url.toString());
+
+    setupConnection(matchId, playerId, playerName);
+    createUI();
+    updateHUD();
+  } catch (err) {
+    console.error("Failed to host game:", err);
+  }
+}
+
+async function startJoining(playerName: string, code: string): Promise<void> {
+  try {
+    const response = await fetch(`http://localhost:3001/join?code=${encodeURIComponent(code)}`);
+    const data = await response.json();
+
+    if (!data.valid) {
+      showJoinError("Invalid game code");
+      return;
+    }
+
+    const { matchId, playerId } = data;
+    currentPlayerId = playerId;
+
+    const url = new URL(window.location.href);
+    url.searchParams.set("matchId", matchId);
+    url.searchParams.set("playerId", playerId);
+    window.history.replaceState({}, "", url.toString());
+
+    screenManager.transition("playing");
+    hideMenu();
+    setupConnection(matchId, playerId, playerName);
+    createUI();
+    updateHUD();
+  } catch (err) {
+    console.error("Failed to join game:", err);
+    showJoinError("Failed to connect to server");
+  }
+}
+
+function setupConnection(matchId: string, playerId: string, playerName?: string): void {
+  let wsUrl = `ws://localhost:3001?matchId=${encodeURIComponent(matchId)}&playerId=${encodeURIComponent(playerId)}`;
+  if (playerName) {
+    wsUrl += `&playerName=${encodeURIComponent(playerName)}`;
+  }
   connection = new GameConnection(wsUrl);
 
   connection.on("match-state", (data) => {
     previousGameState = gameState;
     gameState = data.gameState;
+    if (screenManager.state !== "playing") {
+      screenManager.transition("playing");
+      hideMenu();
+    }
     renderState();
   });
 
@@ -84,7 +198,7 @@ function setupConnection(): void {
 
   connection.onStatusChange((status) => {
     connectionStatus = status;
-    if (status === "connected" && pendingActions.length > 0) {
+    if (status === "connected" && pendingActions.length > 0 && connection) {
       connection.queueActions(pendingActions);
       pendingActions = [];
     }
@@ -138,32 +252,32 @@ function showMatchEndScreen(): void {
   const existing = document.getElementById("match-end-screen");
   if (existing) return;
 
-  const overlay = document.createElement("div");
-  overlay.id = "match-end-screen";
-  overlay.style.cssText = `
+  const overlayEl = document.createElement("div");
+  overlayEl.id = "match-end-screen";
+  overlayEl.style.cssText = `
     position: fixed; top: 0; left: 0; right: 0; bottom: 0;
     background: rgba(0,0,0,0.85); display: flex; flex-direction: column;
     align-items: center; justify-content: center; z-index: 200;
     font-family: monospace; color: #e0e0e0;
   `;
 
-  const isVictory = gameState?.winner === PLAYER_ID;
+  const isVictory = gameState?.winner === currentPlayerId;
   const title = document.createElement("h1");
   title.textContent = isVictory ? "Victory!" : "Defeat!";
   title.style.cssText = `
     font-size: 48px; margin-bottom: 20px;
     color: ${isVictory ? "#53d769" : "#e94560"};
   `;
-  overlay.appendChild(title);
+  overlayEl.appendChild(title);
 
   const stats = document.createElement("div");
   stats.style.cssText = `font-size: 16px; line-height: 1.8; text-align: center; margin-bottom: 30px;`;
   stats.innerHTML = `
     <div>Tick: <span style="color:#4ecdc4">${gameState?.tick ?? 0}</span></div>
-    <div>Your nodes: <span style="color:#53d769">${gameState?.nodes.filter((n) => n.playerId === PLAYER_ID).length ?? 0}</span></div>
-    <div>Resources: <span style="color:#53d769">${gameState?.players.find((p) => p.id === PLAYER_ID)?.resources ?? 0}</span></div>
+    <div>Your nodes: <span style="color:#53d769">${gameState?.nodes.filter((n) => n.playerId === currentPlayerId).length ?? 0}</span></div>
+    <div>Resources: <span style="color:#53d769">${gameState?.players.find((p) => p.id === currentPlayerId)?.resources ?? 0}</span></div>
   `;
-  overlay.appendChild(stats);
+  overlayEl.appendChild(stats);
 
   const newMatchBtn = document.createElement("button");
   newMatchBtn.textContent = "New Match";
@@ -174,23 +288,65 @@ function showMatchEndScreen(): void {
     pointer-events: auto;
   `;
   newMatchBtn.addEventListener("click", () => {
-    window.location.reload();
+    cleanupGame();
+    const url = new URL(window.location.href);
+    url.searchParams.delete("matchId");
+    url.searchParams.delete("playerId");
+    window.history.replaceState({}, "", url.toString());
+    showMenu({
+      onSinglePlayer: (playerName: string) => {
+        currentPlayerId = "player-1";
+        startSinglePlayer(playerName);
+      },
+      onHostGame: (playerName: string) => {
+        startHosting(playerName);
+      },
+      onJoinGame: (playerName: string, code: string) => {
+        startJoining(playerName, code);
+      },
+    });
   });
-  overlay.appendChild(newMatchBtn);
+  overlayEl.appendChild(newMatchBtn);
 
   const hud = document.getElementById("hud");
   if (hud) hud.style.display = "none";
   const palette = document.getElementById("palette");
   if (palette) palette.style.display = "none";
 
-  document.body.appendChild(overlay);
+  document.body.appendChild(overlayEl);
+}
+
+function cleanupGame(): void {
+  if (localLoop) {
+    localLoop.stop();
+    localLoop = null;
+  }
+  if (connection) {
+    connection.disconnect();
+    connection = null;
+  }
+  gameState = null;
+  previousGameState = null;
+  matchEndShown = false;
+  waitingForOpponent = false;
+  selectedNodeType = null;
+  pendingActions = [];
+  smoothCountdownValue = null;
+  clearCountdownInterval();
+
+  const matchEnd = document.getElementById("match-end-screen");
+  if (matchEnd) matchEnd.remove();
+  const uiOverlay = document.getElementById("ui-overlay");
+  if (uiOverlay) uiOverlay.remove();
+  const debugHtml = document.getElementById("debug-html-overlay");
+  if (debugHtml) debugHtml.remove();
 }
 
 function setupInteraction(): void {
   const canvas = renderer["app"].canvas as HTMLCanvasElement;
 
   canvas.addEventListener("pointerdown", (e) => {
-    if (e.button === 0 && selectedNodeType && gameState && !gameState.winner) {
+    if (e.button === 0 && selectedNodeType && gameState && !gameState.winner && currentPlayerId) {
       const rect = canvas.getBoundingClientRect();
       const screenX = e.clientX - rect.left;
       const screenY = e.clientY - rect.top;
@@ -205,13 +361,15 @@ function setupInteraction(): void {
       const validation = validatePlaceNode(
         gameState,
         config,
-        PLAYER_ID,
+        currentPlayerId,
         action.nodeType,
         action.position,
       );
 
       if (validation.valid) {
-        if (connectionStatus === "connected") {
+        if (localLoop) {
+          localLoop.queueAction(action);
+        } else if (connectionStatus === "connected" && connection) {
           connection.queueActions([action]);
         } else {
           pendingActions.push(action);
@@ -236,8 +394,8 @@ function setupInteraction(): void {
       y: Math.round(worldPos.y),
     };
 
-    const validation = gameState
-      ? validatePlaceNode(gameState, config, PLAYER_ID, selectedNodeType, roundedPos)
+    const validation = gameState && currentPlayerId
+      ? validatePlaceNode(gameState, config, currentPlayerId, selectedNodeType, roundedPos)
       : { valid: false };
 
     showPlacementPreview(roundedPos, validation.valid);
@@ -433,8 +591,9 @@ function updateHUD(): void {
   const hud = document.getElementById("hud");
   if (!hud) return;
 
-  const player = gameState?.players.find((p) => p.id === PLAYER_ID);
+  const player = currentPlayerId ? gameState?.players.find((p) => p.id === currentPlayerId) : null;
   const resources = player ? player.resources : 0;
+  const playerName = player?.name;
 
   const statusColor: Record<ConnectionStatus, string> = {
     connected: "#53d769",
@@ -444,7 +603,15 @@ function updateHUD(): void {
 
   let html = "";
 
-  html += `<div>Connection: <span style="color:${statusColor[connectionStatus]}">${connectionStatus}</span></div>`;
+  if (playerName) {
+    html += `<div style="font-size:16px;font-weight:bold;color:#4ecdc4;margin-bottom:4px;">${playerName}</div>`;
+  }
+
+  if (localLoop) {
+    html += `<div>Mode: <span style="color:#53d769">Single Player</span></div>`;
+  } else {
+    html += `<div>Connection: <span style="color:${statusColor[connectionStatus]}">${connectionStatus}</span></div>`;
+  }
 
   if (gameState) {
     html += `<div>Tick: <span style="color:#e94560">${gameState.tick}</span></div>`;
@@ -456,8 +623,8 @@ function updateHUD(): void {
     html += `<div>Next tick: <span style="color:#4ecdc4" id="countdown-value">${smoothCountdownValue.toFixed(1)}</span>s</div>`;
   }
 
-  if (gameState) {
-    const enemyNodes = gameState.nodes.filter((n) => n.playerId !== PLAYER_ID);
+  if (gameState && currentPlayerId) {
+    const enemyNodes = gameState.nodes.filter((n) => n.playerId !== currentPlayerId);
     const enemyByType: Record<string, number> = { root: 0, generator: 0, turret: 0, shield: 0 };
     for (const node of enemyNodes) {
       enemyByType[node.nodeType] = (enemyByType[node.nodeType] ?? 0) + 1;
@@ -471,8 +638,8 @@ function updateHUD(): void {
     html += `<div style="color:#ff8c00">Waiting for opponent...</div>`;
   }
 
-  if (gameState?.winner) {
-    const isPlayerWin = gameState.winner === PLAYER_ID;
+  if (gameState?.winner && currentPlayerId) {
+    const isPlayerWin = gameState.winner === currentPlayerId;
     html += isPlayerWin
       ? `<div style="color:#53d769;font-weight:bold;margin-top:4px;">VICTORY!</div>`
       : `<div style="color:#e94560;font-weight:bold;margin-top:4px;">DEFEAT!</div>`;
