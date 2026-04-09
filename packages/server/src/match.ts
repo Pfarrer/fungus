@@ -35,12 +35,20 @@ export class Match {
     this.players.set(client.playerId, client);
     this.actionQueues.set(client.playerId, []);
     send(client.ws, { type: "match-state", gameState: this.gameState });
+
+    if (this.players.size > 1) {
+      this.broadcastPresence(client.playerId, true, client.playerId);
+    }
   }
 
   reconnectPlayer(client: ClientConnection): void {
     this.players.set(client.playerId, client);
     this.actionQueues.set(client.playerId, []);
     send(client.ws, { type: "match-state", gameState: this.gameState });
+
+    if (this.players.size > 1) {
+      this.broadcastPresence(client.playerId, true, client.playerId);
+    }
 
     if (this.players.size === 2 && !this.tickTimer && !this.ended) {
       this.startTickLoop();
@@ -50,6 +58,7 @@ export class Match {
   removePlayer(playerId: string): void {
     this.players.delete(playerId);
     this.actionQueues.delete(playerId);
+    this.broadcastPresence(playerId, false);
   }
 
   isPlayerConnected(playerId: string): boolean {
@@ -133,6 +142,16 @@ export class Match {
 
   private broadcast(msg: ServerMessage): void {
     for (const conn of this.players.values()) {
+      send(conn.ws, msg);
+    }
+  }
+
+  private broadcastPresence(playerId: string, connected: boolean, excludePlayerId?: string): void {
+    const msg: ServerMessage = { type: "presence", playerId, connected };
+    for (const conn of this.players.values()) {
+      if (conn.playerId === excludePlayerId) {
+        continue;
+      }
       send(conn.ws, msg);
     }
   }

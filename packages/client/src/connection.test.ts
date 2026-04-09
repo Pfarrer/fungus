@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { WebSocketServer, WebSocket as WsWebSocket } from "ws";
 import { GameConnection, decodeServerMessageData } from "./connection.js";
 import { GameRenderer } from "./renderer.js";
@@ -855,5 +855,109 @@ describe("Auto-submit: immediate action submission", () => {
     await waitFor(200);
 
     expect(receivedMessages.length).toBe(1);
+  });
+});
+
+describe("GameConnection reconnect state", () => {
+  class MockWebSocket {
+    static readonly CONNECTING = 0;
+    static readonly OPEN = 1;
+    static readonly CLOSING = 2;
+    static readonly CLOSED = 3;
+    static instances: MockWebSocket[] = [];
+
+    readonly url: string;
+    readyState = MockWebSocket.CONNECTING;
+    onopen: ((event: Event) => void) | null = null;
+    onmessage: ((event: MessageEvent) => void) | null = null;
+    onclose: ((event: CloseEvent) => void) | null = null;
+    onerror: ((event: Event) => void) | null = null;
+
+    constructor(url: string) {
+      this.url = url;
+      MockWebSocket.instances.push(this);
+    }
+
+    send(): void {}
+
+    open(): void {
+      this.readyState = MockWebSocket.OPEN;
+      this.onopen?.({} as Event);
+    }
+
+    close(): void {
+      const wasClosed = this.readyState === MockWebSocket.CLOSED;
+      this.readyState = MockWebSocket.CLOSED;
+      if (!wasClosed) {
+        this.onclose?.({} as CloseEvent);
+      }
+    }
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    MockWebSocket.instances = [];
+    vi.stubGlobal("WebSocket", MockWebSocket);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("exposes retry attempts and next-attempt timing", () => {
+    const conn = new GameConnection("ws://test", {
+      maxReconnectDelay: 1_000,
+      retryWindowMs: 5_000,
+    });
+
+    const reconnectStates: Array<{
+      attempt: number;
+      nextAttemptAt: number | null;
+      retryWindowEndsAt: number | null;
+      exhausted: boolean;
+    } | null> = [];
+    conn.onReconnectStateChange((state) => {
+      reconnectStates.push(state);
+    });
+
+    conn.connect();
+    MockWebSocket.instances[0].open();
+    MockWebSocket.instances[0].close();
+
+    expect(reconnectStates.at(-1)).toEqual({
+      attempt: 1,
+      nextAttemptAt: 2_000,
+      retryWindowEndsAt: 6_000,
+      exhausted: false,
+    });
+
+    vi.advanceTimersByTime(1_000);
+    MockWebSocket.instances[1].open();
+
+    expect(reconnectStates.at(-1)).toBeNull();
+  });
+
+  it("emits a terminal reconnect failure when the retry window is exhausted", () => {
+    const conn = new GameConnection("ws://test", {
+      maxReconnectDelay: 1_000,
+      retryWindowMs: 1_500,
+    });
+
+    const failures: number[] = [];
+    conn.onReconnectFailed(() => {
+      failures.push(Date.now());
+    });
+
+    conn.connect();
+    MockWebSocket.instances[0].open();
+    MockWebSocket.instances[0].close();
+
+    vi.advanceTimersByTime(1_000);
+    MockWebSocket.instances[1].close();
+
+    expect(failures).toHaveLength(1);
+    expect(conn.status).toBe("disconnected");
   });
 });

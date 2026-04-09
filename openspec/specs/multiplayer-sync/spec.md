@@ -14,6 +14,16 @@ The client SHALL connect to the server via WebSocket. The server SHALL accept We
 - **WHEN** a disconnected client reconnects to the server
 - **THEN** the server sends the current game state so the client can resume
 
+#### Scenario: Remote player disconnect notification
+- **WHEN** one player disconnects from an active multiplayer match while another player remains connected
+- **THEN** the server sends a presence notification to the remaining connected player identifying the disconnected player
+- **AND** the message indicates that the player is no longer connected
+
+#### Scenario: Remote player reconnect notification
+- **WHEN** a previously disconnected player reconnects to an active multiplayer match
+- **THEN** the server sends a presence notification to the other connected player identifying the returning player
+- **AND** the message indicates that the player is connected again
+
 ### Requirement: Action submission protocol
 Clients SHALL send queued actions to the server via WebSocket messages. The message format SHALL be `{ type: "queue-actions", actions: Action[] }`.
 
@@ -41,4 +51,3 @@ Clients SHALL NOT own game state. All game logic decisions SHALL be made by the 
 #### Scenario: Client restarts
 - **WHEN** a client refreshes or reconnects
 - **THEN** the client receives the full current game state and resumes rendering with no local state dependency
-

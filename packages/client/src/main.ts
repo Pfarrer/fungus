@@ -1,7 +1,7 @@
 import { Container, Graphics } from "pixi.js";
 import { GameRenderer } from "./renderer.js";
 import { GameConnection } from "./connection.js";
-import type { ConnectionStatus } from "./connection.js";
+import type { ConnectionStatus, ReconnectState } from "./connection.js";
 import {
   createInitialState,
   defaultGameConfig,
@@ -17,6 +17,7 @@ import {
   showJoinError,
   hideMenu,
 } from "./menu.js";
+import { computePresenceSnapshot } from "./presence.js";
 
 let gameState: GameState | null = null;
 let previousGameState: GameState | null = null;
@@ -28,8 +29,12 @@ let debugOverlayVisible = false;
 const debugContainer = new Container();
 let connectionStatus: ConnectionStatus = "disconnected";
 let waitingForOpponent = false;
+let opponentConnected: boolean | null = null;
+let reconnectState: ReconnectState | null = null;
+let reconnectFailed = false;
 let smoothCountdownValue: number | null = null;
 let countdownInterval: ReturnType<typeof setInterval> | null = null;
+let presenceRefreshInterval: ReturnType<typeof setInterval> | null = null;
 let matchEndShown = false;
 
 const previewContainer = new Container();
@@ -94,6 +99,9 @@ async function startSinglePlayer(playerName: string): Promise<void> {
 
   localLoop.start();
   connectionStatus = "connected";
+  opponentConnected = null;
+  reconnectState = null;
+  reconnectFailed = false;
 }
 
 async function startHosting(playerName: string): Promise<void> {
@@ -161,6 +169,10 @@ function setupConnection(matchId: string, playerId: string, playerName?: string)
   connection.on("match-state", (data) => {
     previousGameState = gameState;
     gameState = data.gameState;
+    reconnectFailed = false;
+    if (!waitingForOpponent && opponentConnected === null) {
+      opponentConnected = true;
+    }
     if (screenManager.state !== "playing") {
       screenManager.transition("playing");
       hideMenu();
@@ -171,6 +183,9 @@ function setupConnection(matchId: string, playerId: string, playerName?: string)
   connection.on("tick-result", (data) => {
     previousGameState = gameState;
     gameState = data.gameState;
+    if (!waitingForOpponent && opponentConnected === null) {
+      opponentConnected = true;
+    }
     smoothCountdownValue = null;
     clearCountdownInterval();
 
@@ -193,16 +208,45 @@ function setupConnection(matchId: string, playerId: string, playerName?: string)
 
   connection.on("waiting", () => {
     waitingForOpponent = true;
+    opponentConnected = null;
     updateHUD();
+  });
+
+  connection.on("presence", (data) => {
+    if (data.playerId !== currentPlayerId) {
+      opponentConnected = data.connected;
+      updateHUD();
+    }
   });
 
   connection.onStatusChange((status) => {
     connectionStatus = status;
+    if (status === "connected") {
+      reconnectFailed = false;
+    }
     if (status === "connected" && pendingActions.length > 0 && connection) {
       connection.queueActions(pendingActions);
       pendingActions = [];
     }
     updateHUD();
+  });
+
+  connection.onReconnectStateChange((state) => {
+    reconnectState = state;
+    if (state) {
+      startPresenceRefreshInterval();
+    } else {
+      clearPresenceRefreshInterval();
+    }
+    updateHUD();
+  });
+
+  connection.onReconnectFailed(() => {
+    reconnectFailed = true;
+    reconnectState = null;
+    clearPresenceRefreshInterval();
+    updateHUD();
+    showAbandonedMatchScreen();
   });
 
   connection.connect();
@@ -222,6 +266,25 @@ function clearCountdownInterval(): void {
   if (countdownInterval !== null) {
     clearInterval(countdownInterval);
     countdownInterval = null;
+  }
+}
+
+function startPresenceRefreshInterval(): void {
+  if (presenceRefreshInterval !== null) {
+    return;
+  }
+
+  presenceRefreshInterval = setInterval(() => {
+    if (reconnectState) {
+      updateHUD();
+    }
+  }, 100);
+}
+
+function clearPresenceRefreshInterval(): void {
+  if (presenceRefreshInterval !== null) {
+    clearInterval(presenceRefreshInterval);
+    presenceRefreshInterval = null;
   }
 }
 
@@ -287,25 +350,7 @@ function showMatchEndScreen(): void {
     border-radius: 6px; font-family: monospace; font-size: 18px;
     pointer-events: auto;
   `;
-  newMatchBtn.addEventListener("click", () => {
-    cleanupGame();
-    const url = new URL(window.location.href);
-    url.searchParams.delete("matchId");
-    url.searchParams.delete("playerId");
-    window.history.replaceState({}, "", url.toString());
-    showMenu({
-      onSinglePlayer: (playerName: string) => {
-        currentPlayerId = "player-1";
-        startSinglePlayer(playerName);
-      },
-      onHostGame: (playerName: string) => {
-        startHosting(playerName);
-      },
-      onJoinGame: (playerName: string, code: string) => {
-        startJoining(playerName, code);
-      },
-    });
-  });
+  newMatchBtn.addEventListener("click", returnToMenu);
   overlayEl.appendChild(newMatchBtn);
 
   const hud = document.getElementById("hud");
@@ -314,6 +359,73 @@ function showMatchEndScreen(): void {
   if (palette) palette.style.display = "none";
 
   document.body.appendChild(overlayEl);
+}
+
+function showAbandonedMatchScreen(): void {
+  const existing = document.getElementById("abandoned-match-screen");
+  if (existing) return;
+
+  const overlayEl = document.createElement("div");
+  overlayEl.id = "abandoned-match-screen";
+  overlayEl.style.cssText = `
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.85); display: flex; flex-direction: column;
+    align-items: center; justify-content: center; z-index: 200;
+    font-family: monospace; color: #e0e0e0;
+  `;
+
+  const title = document.createElement("h1");
+  title.textContent = "Match Abandoned";
+  title.style.cssText = `
+    font-size: 42px; margin-bottom: 20px; color: #e94560;
+  `;
+  overlayEl.appendChild(title);
+
+  const body = document.createElement("div");
+  body.style.cssText = "font-size: 16px; line-height: 1.8; text-align: center; margin-bottom: 30px;";
+  body.innerHTML = `
+    <div>Reconnect attempts were exhausted.</div>
+    <div>Return to the menu to start or join another match.</div>
+  `;
+  overlayEl.appendChild(body);
+
+  const returnBtn = document.createElement("button");
+  returnBtn.textContent = "Return to Menu";
+  returnBtn.style.cssText = `
+    padding: 12px 32px; border: 2px solid #e94560;
+    background: #16213e; color: #e94560; cursor: pointer;
+    border-radius: 6px; font-family: monospace; font-size: 18px;
+    pointer-events: auto;
+  `;
+  returnBtn.addEventListener("click", returnToMenu);
+  overlayEl.appendChild(returnBtn);
+
+  const hud = document.getElementById("hud");
+  if (hud) hud.style.display = "none";
+  const palette = document.getElementById("palette");
+  if (palette) palette.style.display = "none";
+
+  document.body.appendChild(overlayEl);
+}
+
+function returnToMenu(): void {
+  cleanupGame();
+  const url = new URL(window.location.href);
+  url.searchParams.delete("matchId");
+  url.searchParams.delete("playerId");
+  window.history.replaceState({}, "", url.toString());
+  showMenu({
+    onSinglePlayer: (playerName: string) => {
+      currentPlayerId = "player-1";
+      startSinglePlayer(playerName);
+    },
+    onHostGame: (playerName: string) => {
+      startHosting(playerName);
+    },
+    onJoinGame: (playerName: string, code: string) => {
+      startJoining(playerName, code);
+    },
+  });
 }
 
 function cleanupGame(): void {
@@ -329,13 +441,19 @@ function cleanupGame(): void {
   previousGameState = null;
   matchEndShown = false;
   waitingForOpponent = false;
+  opponentConnected = null;
+  reconnectState = null;
+  reconnectFailed = false;
   selectedNodeType = null;
   pendingActions = [];
   smoothCountdownValue = null;
   clearCountdownInterval();
+  clearPresenceRefreshInterval();
 
   const matchEnd = document.getElementById("match-end-screen");
   if (matchEnd) matchEnd.remove();
+  const abandonedMatch = document.getElementById("abandoned-match-screen");
+  if (abandonedMatch) abandonedMatch.remove();
   const uiOverlay = document.getElementById("ui-overlay");
   if (uiOverlay) uiOverlay.remove();
   const debugHtml = document.getElementById("debug-html-overlay");
@@ -592,8 +710,20 @@ function updateHUD(): void {
   if (!hud) return;
 
   const player = currentPlayerId ? gameState?.players.find((p) => p.id === currentPlayerId) : null;
+  const opponentPlayer = currentPlayerId
+    ? gameState?.players.find((p) => p.id !== currentPlayerId) ?? null
+    : null;
   const resources = player ? player.resources : 0;
   const playerName = player?.name;
+  const presence = computePresenceSnapshot({
+    isSinglePlayer: Boolean(localLoop),
+    hasRemotePlayer: Boolean(connection) && !waitingForOpponent,
+    connectionStatus,
+    opponentConnected,
+    reconnectState,
+    reconnectFailed,
+    now: Date.now(),
+  });
 
   const statusColor: Record<ConnectionStatus, string> = {
     connected: "#53d769",
@@ -611,6 +741,13 @@ function updateHUD(): void {
     html += `<div>Mode: <span style="color:#53d769">Single Player</span></div>`;
   } else {
     html += `<div>Connection: <span style="color:${statusColor[connectionStatus]}">${connectionStatus}</span></div>`;
+  }
+
+  if (presence && playerName && opponentPlayer) {
+    const selfColor = presence.selfConnected ? "#53d769" : "#e94560";
+    const opponentColor = presence.opponentConnected ? "#53d769" : "#e94560";
+    html += `<div style="margin-top:6px;">You: <span style="color:${selfColor}">active</span></div>`;
+    html += `<div>${opponentPlayer.name ?? opponentPlayer.id}: <span style="color:${opponentColor}">${presence.opponentConnected ? "active" : "disconnected"}</span></div>`;
   }
 
   if (gameState) {
@@ -636,6 +773,24 @@ function updateHUD(): void {
 
   if (waitingForOpponent) {
     html += `<div style="color:#ff8c00">Waiting for opponent...</div>`;
+  }
+
+  if (presence?.message) {
+    const presenceColor = presence.state === "abandoned"
+      ? "#e94560"
+      : presence.state === "active"
+        ? "#53d769"
+        : "#ff8c00";
+    html += `<div style="margin-top:6px;color:${presenceColor}">${presence.message}</div>`;
+  }
+
+  if (presence?.state === "self-reconnecting") {
+    if (presence.nextRetryInSeconds !== null) {
+      html += `<div>Next retry: <span style="color:#4ecdc4">${presence.nextRetryInSeconds.toFixed(1)}</span>s</div>`;
+    }
+    if (presence.retryWindowRemainingSeconds !== null) {
+      html += `<div>Recovery window: <span style="color:#4ecdc4">${presence.retryWindowRemainingSeconds.toFixed(1)}</span>s</div>`;
+    }
   }
 
   if (gameState?.winner && currentPlayerId) {

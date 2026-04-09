@@ -103,6 +103,27 @@ describe("Match", () => {
     expect(match.playerCount()).toBe(1);
   });
 
+  it("notifies the remaining player when an opponent disconnects", () => {
+    const match = new Match("test-match", testConfig);
+    const client1 = createMockClient("player-1");
+    const client2 = createMockClient("player-2");
+
+    match.addPlayer(client1);
+    match.addPlayer(client2);
+    match.tryStart();
+
+    match.removePlayer("player-2");
+
+    const sent = (client1.ws.send as ReturnType<typeof vi.fn>).mock.calls;
+    const parsedMessages = sent.map((call: unknown[]) => JSON.parse(call[0] as string));
+    const presenceMsg = [...parsedMessages].reverse().find((msg: { type?: string }) => msg.type === "presence");
+    expect(presenceMsg).toEqual({
+      type: "presence",
+      playerId: "player-2",
+      connected: false,
+    });
+  });
+
   it("handles player reconnection", () => {
     const match = new Match("test-match", testConfig);
     const client1 = createMockClient("player-1");
@@ -118,6 +139,29 @@ describe("Match", () => {
     const reconnectedClient = createMockClient("player-2");
     match.reconnectPlayer(reconnectedClient);
     expect(match.playerCount()).toBe(2);
+  });
+
+  it("notifies the remaining player when an opponent reconnects", () => {
+    const match = new Match("test-match", testConfig);
+    const client1 = createMockClient("player-1");
+    const client2 = createMockClient("player-2");
+
+    match.addPlayer(client1);
+    match.addPlayer(client2);
+    match.tryStart();
+    match.removePlayer("player-2");
+
+    const reconnectedClient = createMockClient("player-2");
+    match.reconnectPlayer(reconnectedClient);
+
+    const sent = (client1.ws.send as ReturnType<typeof vi.fn>).mock.calls;
+    const parsedMessages = sent.map((call: unknown[]) => JSON.parse(call[0] as string));
+    const presenceMsg = [...parsedMessages].reverse().find((msg: { type?: string }) => msg.type === "presence");
+    expect(presenceMsg).toEqual({
+      type: "presence",
+      playerId: "player-2",
+      connected: true,
+    });
   });
 
   it("destroys match when all players leave", () => {

@@ -70,6 +70,20 @@ describe("Protocol", () => {
       expect(JSON.parse(serialized)).toEqual({ type: "waiting" });
     });
 
+    it("serializes player presence notifications", () => {
+      const msg: ServerMessage = {
+        type: "presence",
+        playerId: "player-2",
+        connected: false,
+      };
+      const serialized = serializeServerMessage(msg);
+      expect(JSON.parse(serialized)).toEqual({
+        type: "presence",
+        playerId: "player-2",
+        connected: false,
+      });
+    });
+
     it("serializes error", () => {
       const msg: ServerMessage = { type: "error", message: "Something went wrong" };
       const serialized = serializeServerMessage(msg);

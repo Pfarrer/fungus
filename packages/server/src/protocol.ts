@@ -38,6 +38,12 @@ export interface WaitingMessage {
   type: "waiting";
 }
 
+export interface PresenceMessage {
+  type: "presence";
+  playerId: string;
+  connected: boolean;
+}
+
 export interface ErrorMessage {
   type: "error";
   message: string;
@@ -48,6 +54,7 @@ export type ServerMessage =
   | TickCountdownMessage
   | MatchStateMessage
   | WaitingMessage
+  | PresenceMessage
   | ErrorMessage;
 
 export function parseClientMessage(data: string): ClientMessage | null {
