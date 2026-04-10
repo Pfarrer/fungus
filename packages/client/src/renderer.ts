@@ -3,6 +3,12 @@ import type { GameState, GameConfig, Node as GameNode, Edge as GameEdge } from "
 import type { VisualEffect } from "./effects.js";
 import { MAX_EFFECTS } from "./effects.js";
 
+interface PendingNode {
+  position: { x: number; y: number };
+  nodeType: string;
+  playerId: string;
+}
+
 const MAP_BG_COLOR = 0x16213e;
 const MAP_BORDER_COLOR = 0x0f3460;
 const ROOT_COLOR = 0xe94560;
@@ -14,6 +20,7 @@ const TURRET_RADIUS = 9;
 const SHIELD_COLOR = 0x00bfff;
 const SHIELD_RADIUS = 9;
 const SHIELD_AURA_COLOR = 0x00bfff;
+const GHOST_OPACITY = 0.4;
 const EDGE_COLOR = 0x4a4e69;
 const EDGE_DAMAGED_COLOR = 0xe94560;
 const EDGE_WIDTH = 2;
@@ -34,6 +41,7 @@ export class GameRenderer {
   private world: Container;
   private mapGraphics: Graphics;
   private edgesContainer: Container;
+  private ghostContainer: Container;
   private nodesContainer: Container;
   private effectsContainer: Container;
   private isDragging = false;
@@ -50,6 +58,7 @@ export class GameRenderer {
     this.world = new Container();
     this.mapGraphics = new Graphics();
     this.edgesContainer = new Container();
+    this.ghostContainer = new Container();
     this.nodesContainer = new Container();
     this.effectsContainer = new Container();
   }
@@ -65,6 +74,7 @@ export class GameRenderer {
 
     this.world.addChild(this.mapGraphics);
     this.world.addChild(this.edgesContainer);
+    this.world.addChild(this.ghostContainer);
     this.world.addChild(this.nodesContainer);
     this.world.addChild(this.effectsContainer);
     this.app.stage.addChild(this.world);
@@ -327,12 +337,75 @@ export class GameRenderer {
     }
   }
 
+  renderGhostNodes(pendingNodes: PendingNode[], state: GameState, config: GameConfig): void {
+    this.destroyChildren(this.ghostContainer);
+
+    for (const pending of pendingNodes) {
+      const radius = this.getRadiusForNodeType(pending.nodeType);
+      const color = this.getColorForNodeType(pending.nodeType);
+
+      const circle = new Graphics();
+      circle.circle(pending.position.x, pending.position.y, radius);
+      circle.fill({ color, alpha: GHOST_OPACITY });
+      circle.circle(pending.position.x, pending.position.y, radius);
+      circle.stroke({ color: 0xffffff, width: 1, alpha: GHOST_OPACITY });
+      this.ghostContainer.addChild(circle);
+
+      const closestNode = this.findClosestFriendlyNodeWithinRange(
+        pending.position,
+        pending.playerId,
+        state,
+        config,
+      );
+      if (closestNode) {
+        const edgeLine = new Graphics();
+        edgeLine.moveTo(pending.position.x, pending.position.y);
+        edgeLine.lineTo(closestNode.position.x, closestNode.position.y);
+        edgeLine.stroke({ color: EDGE_COLOR, width: EDGE_WIDTH, alpha: GHOST_OPACITY });
+        this.ghostContainer.addChild(edgeLine);
+      }
+    }
+  }
+
+  private findClosestFriendlyNodeWithinRange(
+    position: { x: number; y: number },
+    playerId: string,
+    state: GameState,
+    config: GameConfig,
+  ): GameNode | null {
+    const maxDist = config.map.maxConnectionDistance;
+    let closest: GameNode | null = null;
+    let closestDist = maxDist;
+
+    for (const node of state.nodes) {
+      if (node.playerId !== playerId) continue;
+      const dx = node.position.x - position.x;
+      const dy = node.position.y - position.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < closestDist) {
+        closestDist = dist;
+        closest = node;
+      }
+    }
+
+    return closest;
+  }
+
   private getRadiusForNodeType(nodeType: string): number {
     switch (nodeType) {
       case "root": return ROOT_RADIUS;
       case "turret": return TURRET_RADIUS;
       case "shield": return SHIELD_RADIUS;
       default: return GENERATOR_RADIUS;
+    }
+  }
+
+  private getColorForNodeType(nodeType: string): number {
+    switch (nodeType) {
+      case "root": return ROOT_COLOR;
+      case "turret": return TURRET_COLOR;
+      case "shield": return SHIELD_COLOR;
+      default: return GENERATOR_COLOR;
     }
   }
 

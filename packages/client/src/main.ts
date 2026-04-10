@@ -37,6 +37,14 @@ let countdownInterval: ReturnType<typeof setInterval> | null = null;
 let presenceRefreshInterval: ReturnType<typeof setInterval> | null = null;
 let matchEndShown = false;
 
+interface PendingNode {
+  position: { x: number; y: number };
+  nodeType: string;
+  playerId: string;
+}
+
+let pendingNodes: PendingNode[] = [];
+
 const previewContainer = new Container();
 let previewGraphics: Graphics | null = null;
 
@@ -299,6 +307,18 @@ function renderState(): void {
   if (!gameState) return;
   waitingForOpponent = false;
   renderer.render(gameState, config);
+
+  for (const pending of pendingNodes) {
+    gameState.nodes.find(
+      (n) =>
+        n.position.x === pending.position.x &&
+        n.position.y === pending.position.y &&
+        n.nodeType === pending.nodeType &&
+        n.playerId === pending.playerId,
+    );
+  }
+  pendingNodes = [];
+
   updateHUD();
   if (debugOverlayVisible) renderDebugOverlay();
   checkMatchEnd();
@@ -446,6 +466,7 @@ function cleanupGame(): void {
   reconnectFailed = false;
   selectedNodeType = null;
   pendingActions = [];
+  pendingNodes = [];
   smoothCountdownValue = null;
   clearCountdownInterval();
   clearPresenceRefreshInterval();
@@ -491,6 +512,15 @@ function setupInteraction(): void {
           connection.queueActions([action]);
         } else {
           pendingActions.push(action);
+        }
+
+        if (currentPlayerId) {
+          pendingNodes.push({
+            position: action.position,
+            nodeType: action.nodeType,
+            playerId: currentPlayerId,
+          });
+          renderGhostNodes();
         }
       }
     }
@@ -638,6 +668,12 @@ function showPlacementPreview(
 function clearPreview(): void {
   previewContainer.removeChildren();
   previewGraphics = null;
+}
+
+function renderGhostNodes(): void {
+  if (gameState) {
+    renderer.renderGhostNodes(pendingNodes, gameState, config);
+  }
 }
 
 function createUI(): void {
