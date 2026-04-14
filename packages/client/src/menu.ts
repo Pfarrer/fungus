@@ -61,6 +61,7 @@ function styleInput(input: HTMLInputElement): void {
 
 export interface MenuCallbacks {
   onSinglePlayer: (playerName: string) => void;
+  onBotMatch: (playerName: string) => void;
   onHostGame: (playerName: string) => void;
   onJoinGame: (playerName: string, code: string) => void;
 }
@@ -95,14 +96,19 @@ export function renderMenuScreen(callbacks: MenuCallbacks): void {
   btnContainer.style.cssText = "display: flex; flex-direction: column; gap: 12px; margin-top: 24px;";
 
   const singlePlayerBtn = document.createElement("button");
-  singlePlayerBtn.textContent = "Single Player";
+  singlePlayerBtn.textContent = "Single Player (Sandbox)";
   singlePlayerBtn.style.cssText = BUTTON_STYLE;
+
+  const botMatchBtn = document.createElement("button");
+  botMatchBtn.textContent = "Single Player (vs Bot)";
+  botMatchBtn.style.cssText = BUTTON_STYLE;
 
   const multiplayerBtn = document.createElement("button");
   multiplayerBtn.textContent = "Multiplayer";
   multiplayerBtn.style.cssText = BUTTON_STYLE;
 
   btnContainer.appendChild(singlePlayerBtn);
+  btnContainer.appendChild(botMatchBtn);
   btnContainer.appendChild(multiplayerBtn);
   el.appendChild(btnContainer);
 
@@ -123,6 +129,13 @@ export function renderMenuScreen(callbacks: MenuCallbacks): void {
     const name = nameInput.value.trim();
     savePlayerName(name);
     callbacks.onSinglePlayer(name);
+  });
+
+  botMatchBtn.addEventListener("click", () => {
+    if (!validateName()) return;
+    const name = nameInput.value.trim();
+    savePlayerName(name);
+    callbacks.onBotMatch(name);
   });
 
   multiplayerBtn.addEventListener("click", () => {

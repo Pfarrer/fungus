@@ -10,7 +10,7 @@ import {
 import type { GameState, GameAction, GameConfig } from "@fungus/game";
 import { computeStateDiffs } from "./state-diff.js";
 import { ScreenManager } from "./screen-manager.js";
-import { LocalGameLoop } from "./local-game-loop.js";
+import { LocalGameLoop, type BotMatchConfig } from "./local-game-loop.js";
 import {
   showMenu,
   renderHostingScreen,
@@ -78,6 +78,10 @@ function init(): void {
           currentPlayerId = "player-1";
           startSinglePlayer(playerName);
         },
+        onBotMatch: (playerName: string) => {
+          currentPlayerId = "player-1";
+          startBotMatch(playerName);
+        },
         onHostGame: (playerName: string) => {
           startHosting(playerName);
         },
@@ -108,6 +112,42 @@ async function startSinglePlayer(playerName: string): Promise<void> {
   localLoop.start();
   connectionStatus = "connected";
   opponentConnected = null;
+  reconnectState = null;
+  reconnectFailed = false;
+}
+
+async function startBotMatch(playerName: string): Promise<void> {
+  const state = createInitialState(config);
+  state.players[0].name = playerName;
+  if (state.players[1]) {
+    state.players[1].name = "Bot";
+  }
+  gameState = state;
+
+  screenManager.transition("playing");
+  hideMenu();
+  createUI();
+  updateHUD();
+
+  const botConfig: BotMatchConfig = {
+    playerId: "player-1",
+    opponentId: "player-2",
+  };
+
+  localLoop = new LocalGameLoop(
+    (newState) => {
+      previousGameState = gameState;
+      gameState = newState;
+      renderState();
+    },
+    config,
+    state,
+    botConfig,
+  );
+
+  localLoop.start();
+  connectionStatus = "connected";
+  opponentConnected = true;
   reconnectState = null;
   reconnectFailed = false;
 }
@@ -438,6 +478,10 @@ function returnToMenu(): void {
     onSinglePlayer: (playerName: string) => {
       currentPlayerId = "player-1";
       startSinglePlayer(playerName);
+    },
+    onBotMatch: (playerName: string) => {
+      currentPlayerId = "player-1";
+      startBotMatch(playerName);
     },
     onHostGame: (playerName: string) => {
       startHosting(playerName);
@@ -774,7 +818,8 @@ function updateHUD(): void {
   }
 
   if (localLoop) {
-    html += `<div>Mode: <span style="color:#53d769">Single Player</span></div>`;
+    const isBotMatch = (localLoop as any).botMatchConfig !== null;
+    html += `<div>Mode: <span style="color:#53d769">${isBotMatch ? "vs Bot" : "Sandbox"}</span></div>`;
   } else {
     html += `<div>Connection: <span style="color:${statusColor[connectionStatus]}">${connectionStatus}</span></div>`;
   }

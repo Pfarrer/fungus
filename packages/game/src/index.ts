@@ -23,3 +23,4 @@ export { processActions, simulateTick } from "./game-loop.js";
 export { getShieldReductionForNode, resolveCombat } from "./combat.js";
 export { updateDisconnectedStatus, drainDisconnectedNodes, removeDeadNodes, checkWinCondition, resolveDeath } from "./death.js";
 export { loadScenario, builtInScenarios } from "./scenario-loader.js";
+export { generateBotActions } from "./bot-opponent.js";

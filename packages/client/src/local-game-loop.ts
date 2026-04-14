@@ -1,5 +1,10 @@
-import { simulateTick, createInitialState, defaultGameConfig } from "@fungus/game";
+import { simulateTick, createInitialState, defaultGameConfig, generateBotActions } from "@fungus/game";
 import type { GameAction, GameConfig, GameState } from "@fungus/game";
+
+export interface BotMatchConfig {
+  playerId: string;
+  opponentId: string;
+}
 
 export class LocalGameLoop {
   private gameState: GameState;
@@ -7,15 +12,18 @@ export class LocalGameLoop {
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private actionQueue: GameAction[] = [];
   private onTick: (state: GameState) => void;
+  private botMatchConfig: BotMatchConfig | null = null;
 
   constructor(
     onTick: (state: GameState) => void,
     config?: GameConfig,
     initialState?: GameState,
+    botMatchConfig?: BotMatchConfig,
   ) {
     this.onTick = onTick;
     this.config = config ?? defaultGameConfig;
     this.gameState = initialState ?? createInitialState(this.config);
+    this.botMatchConfig = botMatchConfig ?? null;
   }
 
   start(): void {
@@ -52,6 +60,15 @@ export class LocalGameLoop {
         playerActions.set(currentPlayer.id, [...this.actionQueue]);
       }
       this.actionQueue.length = 0;
+    }
+
+    if (this.botMatchConfig) {
+      const botActions = generateBotActions(
+        this.gameState,
+        this.config,
+        this.botMatchConfig.opponentId,
+      );
+      playerActions.set(this.botMatchConfig.opponentId, botActions);
     }
 
     this.gameState = simulateTick(this.gameState, playerActions, this.config);

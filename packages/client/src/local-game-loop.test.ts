@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { LocalGameLoop } from "./local-game-loop.js";
+import { LocalGameLoop, type BotMatchConfig } from "./local-game-loop.js";
 import { createInitialState, defaultGameConfig, simulateTick } from "@fungus/game";
 import type { GameAction, GameConfig, GameState } from "@fungus/game";
 
@@ -160,5 +160,88 @@ describe("LocalGameLoop", () => {
 
     vi.advanceTimersByTime(defaultGameConfig.tickDurationMs);
     expect(onTick).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("LocalGameLoop with bot match", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("initializes with bot match config", () => {
+    const initialState = createInitialState(defaultGameConfig);
+    const onTick = vi.fn();
+    const botConfig: BotMatchConfig = {
+      playerId: "player-1",
+      opponentId: "player-2",
+    };
+    const loop = new LocalGameLoop(onTick, defaultGameConfig, initialState, botConfig);
+
+    loop.start();
+
+    expect(onTick).toHaveBeenCalledTimes(1);
+    const state = onTick.mock.calls[0][0] as GameState;
+    expect(state.players).toHaveLength(2);
+  });
+
+  it("generates bot actions each tick", () => {
+    const config: GameConfig = { ...defaultGameConfig, tickDurationMs: 100 };
+    const initialState = createInitialState(config);
+    const onTick = vi.fn();
+    const botConfig: BotMatchConfig = {
+      playerId: "player-1",
+      opponentId: "player-2",
+    };
+    const loop = new LocalGameLoop(onTick, config, initialState, botConfig);
+
+    loop.start();
+    expect(onTick).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(100);
+    expect(onTick).toHaveBeenCalledTimes(2);
+
+    const stateAfterTick = onTick.mock.calls[1][0] as GameState;
+    expect(stateAfterTick.tick).toBe(1);
+  });
+
+  it("bot opponent has resources after tick", () => {
+    const config: GameConfig = { ...defaultGameConfig, tickDurationMs: 100 };
+    const initialState = createInitialState(config);
+    initialState.players[1].resources = 50;
+
+    const onTick = vi.fn();
+    const botConfig: BotMatchConfig = {
+      playerId: "player-1",
+      opponentId: "player-2",
+    };
+    const loop = new LocalGameLoop(onTick, config, initialState, botConfig);
+
+    loop.start();
+    vi.advanceTimersByTime(100);
+
+    const state = onTick.mock.calls[1][0] as GameState;
+    const botPlayer = state.players.find((p) => p.id === "player-2");
+    expect(botPlayer).toBeDefined();
+  });
+
+  it("state advances with bot actions processed", () => {
+    const config: GameConfig = { ...defaultGameConfig, tickDurationMs: 100 };
+    const initialState = createInitialState(config);
+    const onTick = vi.fn();
+    const botConfig: BotMatchConfig = {
+      playerId: "player-1",
+      opponentId: "player-2",
+    };
+    const loop = new LocalGameLoop(onTick, config, initialState, botConfig);
+
+    loop.start();
+    vi.advanceTimersByTime(300);
+
+    const state = onTick.mock.calls[3][0] as GameState;
+    expect(state.tick).toBe(3);
   });
 });
