@@ -9,6 +9,7 @@ import {
 } from "@fungus/game";
 import type { GameState, GameAction, GameConfig } from "@fungus/game";
 import { computeStateDiffs } from "./state-diff.js";
+import { getPalette } from "./player-palette.js";
 import { ScreenManager } from "./screen-manager.js";
 import { LocalGameLoop, type BotMatchConfig } from "./local-game-loop.js";
 import {
@@ -238,7 +239,7 @@ function setupConnection(matchId: string, playerId: string, playerName?: string)
     clearCountdownInterval();
 
     if (previousGameState) {
-      const effects = computeStateDiffs(previousGameState, gameState);
+      const effects = computeStateDiffs(previousGameState, gameState, currentPlayerId ?? undefined);
       for (const effect of effects) {
         renderer.addEffect(effect);
       }
@@ -346,7 +347,7 @@ function updateCountdownDisplay(): void {
 function renderState(): void {
   if (!gameState) return;
   waitingForOpponent = false;
-  renderer.render(gameState, config);
+  renderer.render(gameState, config, currentPlayerId ?? undefined);
 
   for (const pending of pendingNodes) {
     gameState.nodes.find(
@@ -677,27 +678,51 @@ function showPlacementPreview(
   let nodeColor: number;
   let nodeAlpha: number;
   let radius: number;
-  switch (selectedNodeType) {
-    case "turret":
-      nodeColor = 0xff8c00;
-      nodeAlpha = 0.53;
-      radius = 9;
-      break;
-    case "shield":
-      nodeColor = 0x00bfff;
-      nodeAlpha = 0.53;
-      radius = 9;
-      break;
-    case "root":
-      nodeColor = 0xe94560;
-      nodeAlpha = 0.53;
-      radius = 12;
-      break;
-    default:
-      nodeColor = 0x53d769;
-      nodeAlpha = 0.53;
-      radius = 8;
-      break;
+
+  if (currentPlayerId) {
+    const palette = getPalette(currentPlayerId, currentPlayerId);
+    nodeAlpha = 0.53;
+    switch (selectedNodeType) {
+      case "turret":
+        nodeColor = palette.turret;
+        radius = 9;
+        break;
+      case "shield":
+        nodeColor = palette.shield;
+        radius = 9;
+        break;
+      case "root":
+        nodeColor = palette.root;
+        radius = 12;
+        break;
+      default:
+        nodeColor = palette.generator;
+        radius = 8;
+        break;
+    }
+  } else {
+    switch (selectedNodeType) {
+      case "turret":
+        nodeColor = 0xff8c00;
+        nodeAlpha = 0.53;
+        radius = 9;
+        break;
+      case "shield":
+        nodeColor = 0x00bfff;
+        nodeAlpha = 0.53;
+        radius = 9;
+        break;
+      case "root":
+        nodeColor = 0xe94560;
+        nodeAlpha = 0.53;
+        radius = 12;
+        break;
+      default:
+        nodeColor = 0x53d769;
+        nodeAlpha = 0.53;
+        radius = 8;
+        break;
+    }
   }
 
   previewGraphics.circle(position.x, position.y, radius);
@@ -716,7 +741,7 @@ function clearPreview(): void {
 
 function renderGhostNodes(): void {
   if (gameState) {
-    renderer.renderGhostNodes(pendingNodes, gameState, config);
+    renderer.renderGhostNodes(pendingNodes, gameState, config, currentPlayerId ?? undefined);
   }
 }
 

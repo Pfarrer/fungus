@@ -5,6 +5,7 @@ import {
   createNodeDeath,
   createEdgeBreak,
 } from "./effects.js";
+import { getPalette } from "./player-palette.js";
 
 const NODE_COLORS: Record<string, number> = {
   root: 0xe94560,
@@ -13,7 +14,7 @@ const NODE_COLORS: Record<string, number> = {
   shield: 0x00bfff,
 };
 
-export function computeStateDiffs(prev: GameState, next: GameState): VisualEffect[] {
+export function computeStateDiffs(prev: GameState, next: GameState, currentPlayerId?: string): VisualEffect[] {
   const effects: VisualEffect[] = [];
   const prevNodeMap = new Map(prev.nodes.map((n) => [n.id, n]));
   const nextNodeMap = new Map(next.nodes.map((n) => [n.id, n]));
@@ -22,12 +23,25 @@ export function computeStateDiffs(prev: GameState, next: GameState): VisualEffec
   for (const [id, prevNode] of prevNodeMap) {
     const nextNode = nextNodeMap.get(id);
     if (!nextNode) {
+      let deathColor: number;
+      if (currentPlayerId) {
+        const palette = getPalette(prevNode.playerId, currentPlayerId);
+        const colorMap: Record<string, number> = {
+          root: palette.root,
+          generator: palette.generator,
+          turret: palette.turret,
+          shield: palette.shield,
+        };
+        deathColor = colorMap[prevNode.nodeType] ?? 0xffffff;
+      } else {
+        deathColor = NODE_COLORS[prevNode.nodeType] ?? 0xffffff;
+      }
       effects.push(createNodeDeath(
         id,
         prevNode.position.x,
         prevNode.position.y,
         10,
-        NODE_COLORS[prevNode.nodeType] ?? 0xffffff,
+        deathColor,
       ));
     } else if (nextNode.health < prevNode.health) {
       effects.push(createDamageFlash(

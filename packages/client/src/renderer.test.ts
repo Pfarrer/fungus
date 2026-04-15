@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { GameState, GameConfig } from "@fungus/game";
+import { getPalette, SELF, OPPONENT } from "./player-palette.js";
 
 const defaultConfig: GameConfig = {
   map: { width: 800, height: 600, maxConnectionDistance: 100, spawnPoints: [], nodeTypeConfigs: {}, edgeHealth: 100 },
@@ -346,5 +347,55 @@ describe("node type colors", () => {
 
   it("returns correct radius for turret", () => {
     expect(getRadiusForNodeType("turret")).toBe(9);
+  });
+});
+
+describe("player palette", () => {
+  it("returns SELF palette for active player", () => {
+    const palette = getPalette("p1", "p1");
+    expect(palette).toBe(SELF);
+  });
+
+  it("returns OPPONENT palette for other player", () => {
+    const palette = getPalette("p2", "p1");
+    expect(palette).toBe(OPPONENT);
+  });
+
+  it("SELF palette uses warm colors", () => {
+    expect(SELF.root).toBe(0xe94560);
+    expect(SELF.generator).toBe(0x53d769);
+    expect(SELF.turret).toBe(0xff8c00);
+    expect(SELF.shield).toBe(0x00bfff);
+  });
+
+  it("OPPONENT palette uses cool colors", () => {
+    expect(OPPONENT.root).toBe(0x9b59b6);
+    expect(OPPONENT.generator).toBe(0x1abc9c);
+    expect(OPPONENT.turret).toBe(0xe91e63);
+    expect(OPPONENT.shield).toBe(0x5c6bc0);
+  });
+
+  it("SELF and OPPONENT palettes differ for root", () => {
+    expect(SELF.root).not.toBe(OPPONENT.root);
+  });
+
+  it("SELF and OPPONENT palettes differ for generator", () => {
+    expect(SELF.generator).not.toBe(OPPONENT.generator);
+  });
+
+  it("SELF and OPPONENT palettes differ for turret", () => {
+    expect(SELF.turret).not.toBe(OPPONENT.turret);
+  });
+
+  it("SELF and OPPONENT palettes differ for shield", () => {
+    expect(SELF.shield).not.toBe(OPPONENT.shield);
+  });
+
+  it("SELF and OPPONENT edge colors differ", () => {
+    expect(SELF.edge).not.toBe(OPPONENT.edge);
+  });
+
+  it("SELF and OPPONENT edge damaged colors differ", () => {
+    expect(SELF.edgeDamaged).not.toBe(OPPONENT.edgeDamaged);
   });
 });

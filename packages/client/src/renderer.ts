@@ -2,6 +2,8 @@ import { Application, Container, Graphics } from "pixi.js";
 import type { GameState, GameConfig, Node as GameNode, Edge as GameEdge } from "@fungus/game";
 import type { VisualEffect } from "./effects.js";
 import { MAX_EFFECTS } from "./effects.js";
+import { getPalette } from "./player-palette.js";
+import type { PlayerPalette } from "./player-palette.js";
 
 interface PendingNode {
   position: { x: number; y: number };
@@ -211,13 +213,13 @@ export class GameRenderer {
     }
   }
 
-  render(state: GameState, config: GameConfig): void {
+  render(state: GameState, config: GameConfig, currentPlayerId?: string): void {
     this.currentNodeState = state.nodes;
     this.currentConfig = config;
 
     this.renderMap(config);
-    this.renderEdges(state.edges, state.nodes);
-    this.renderNodes(state.nodes, config);
+    this.renderEdges(state.edges, state.nodes, currentPlayerId);
+    this.renderNodes(state.nodes, config, currentPlayerId);
   }
 
   private renderMap(config: GameConfig): void {
@@ -236,7 +238,7 @@ export class GameRenderer {
     }
   }
 
-  private renderEdges(edges: GameEdge[], nodes: GameNode[]): void {
+  private renderEdges(edges: GameEdge[], nodes: GameNode[], currentPlayerId?: string): void {
     this.destroyChildren(this.edgesContainer);
 
     const nodeMap = new Map(nodes.map((n) => [n.id, n]));
@@ -247,9 +249,13 @@ export class GameRenderer {
       if (!from || !to) continue;
 
       const healthRatio = edge.health / edge.maxHealth;
-      const lineColor = healthRatio < 0.5
-        ? EDGE_DAMAGED_COLOR
-        : EDGE_COLOR;
+      let lineColor: number;
+      if (currentPlayerId) {
+        const palette = getPalette(to.playerId, currentPlayerId);
+        lineColor = healthRatio < 0.5 ? palette.edgeDamaged : palette.edge;
+      } else {
+        lineColor = healthRatio < 0.5 ? EDGE_DAMAGED_COLOR : EDGE_COLOR;
+      }
 
       const line = new Graphics();
       line.moveTo(from.position.x, from.position.y);
@@ -259,7 +265,7 @@ export class GameRenderer {
     }
   }
 
-  private renderNodes(nodes: GameNode[], config: GameConfig): void {
+  private renderNodes(nodes: GameNode[], config: GameConfig, currentPlayerId?: string): void {
     this.destroyChildren(this.nodesContainer);
 
     const shieldNodes = nodes.filter((n) => n.nodeType === "shield" && n.connected);
@@ -283,23 +289,29 @@ export class GameRenderer {
       let radius: number;
       let color: number;
 
-      switch (node.nodeType) {
-        case "root":
-          radius = ROOT_RADIUS;
-          color = ROOT_COLOR;
-          break;
-        case "turret":
-          radius = TURRET_RADIUS;
-          color = TURRET_COLOR;
-          break;
-        case "shield":
-          radius = SHIELD_RADIUS;
-          color = SHIELD_COLOR;
-          break;
-        default:
-          radius = GENERATOR_RADIUS;
-          color = GENERATOR_COLOR;
-          break;
+      if (currentPlayerId) {
+        const palette = getPalette(node.playerId, currentPlayerId);
+        radius = this.getRadiusForNodeType(node.nodeType);
+        color = this.getColorFromPalette(node.nodeType, palette);
+      } else {
+        switch (node.nodeType) {
+          case "root":
+            radius = ROOT_RADIUS;
+            color = ROOT_COLOR;
+            break;
+          case "turret":
+            radius = TURRET_RADIUS;
+            color = TURRET_COLOR;
+            break;
+          case "shield":
+            radius = SHIELD_RADIUS;
+            color = SHIELD_COLOR;
+            break;
+          default:
+            radius = GENERATOR_RADIUS;
+            color = GENERATOR_COLOR;
+            break;
+        }
       }
 
       const circle = new Graphics();
@@ -313,7 +325,10 @@ export class GameRenderer {
         const auraRadius = shieldConfig?.attackRange ?? 60;
         const aura = new Graphics();
         aura.circle(0, 0, auraRadius);
-        aura.stroke({ color: SHIELD_AURA_COLOR, width: 2, alpha: 0.4 });
+        const auraColor = currentPlayerId
+          ? getPalette(node.playerId, currentPlayerId).shieldAura
+          : SHIELD_AURA_COLOR;
+        aura.stroke({ color: auraColor, width: 2, alpha: 0.4 });
         container.addChild(aura);
       }
 
@@ -321,7 +336,10 @@ export class GameRenderer {
         const pulseAlpha = 0.1 + 0.1 * Math.sin(this.shieldPulseTime / 500);
         const auraG = new Graphics();
         auraG.circle(0, 0, this.getRadiusForNodeType(node.nodeType) + 6);
-        auraG.fill({ color: SHIELD_AURA_COLOR, alpha: pulseAlpha });
+        const auraColor = currentPlayerId
+          ? getPalette(node.playerId, currentPlayerId).shieldAura
+          : SHIELD_AURA_COLOR;
+        auraG.fill({ color: auraColor, alpha: pulseAlpha });
         container.addChild(auraG);
       }
 
@@ -337,12 +355,22 @@ export class GameRenderer {
     }
   }
 
-  renderGhostNodes(pendingNodes: PendingNode[], state: GameState, config: GameConfig): void {
+  renderGhostNodes(pendingNodes: PendingNode[], state: GameState, config: GameConfig, currentPlayerId?: string): void {
     this.destroyChildren(this.ghostContainer);
 
     for (const pending of pendingNodes) {
       const radius = this.getRadiusForNodeType(pending.nodeType);
-      const color = this.getColorForNodeType(pending.nodeType);
+      let color: number;
+      let edgeColor: number;
+
+      if (currentPlayerId) {
+        const palette = getPalette(pending.playerId, currentPlayerId);
+        color = this.getColorFromPalette(pending.nodeType, palette);
+        edgeColor = palette.edge;
+      } else {
+        color = this.getColorForNodeType(pending.nodeType);
+        edgeColor = EDGE_COLOR;
+      }
 
       const circle = new Graphics();
       circle.circle(pending.position.x, pending.position.y, radius);
@@ -361,7 +389,7 @@ export class GameRenderer {
         const edgeLine = new Graphics();
         edgeLine.moveTo(pending.position.x, pending.position.y);
         edgeLine.lineTo(closestNode.position.x, closestNode.position.y);
-        edgeLine.stroke({ color: EDGE_COLOR, width: EDGE_WIDTH, alpha: GHOST_OPACITY });
+        edgeLine.stroke({ color: edgeColor, width: EDGE_WIDTH, alpha: GHOST_OPACITY });
         this.ghostContainer.addChild(edgeLine);
       }
     }
@@ -406,6 +434,15 @@ export class GameRenderer {
       case "turret": return TURRET_COLOR;
       case "shield": return SHIELD_COLOR;
       default: return GENERATOR_COLOR;
+    }
+  }
+
+  private getColorFromPalette(nodeType: string, palette: PlayerPalette): number {
+    switch (nodeType) {
+      case "root": return palette.root;
+      case "turret": return palette.turret;
+      case "shield": return palette.shield;
+      default: return palette.generator;
     }
   }
 
