@@ -1,6 +1,5 @@
 import type { GameAction, GameConfig, GameState, Node, Position } from "./types.js";
 import { validatePlaceNode } from "./node-placement.js";
-import { euclideanDistance, findClosestFriendlyNode } from "./spatial.js";
 
 const NODE_TYPES: string[] = ["generator", "turret", "shield"];
 

@@ -3,7 +3,6 @@ import { generateBotActions } from "./bot-opponent.js";
 import { createInitialState } from "./initial-state.js";
 import { defaultGameConfig } from "./config.js";
 import { simulateTick } from "./game-loop.js";
-import type { GameAction } from "./types.js";
 
 describe("generateBotActions", () => {
   let state: ReturnType<typeof createInitialState>;
