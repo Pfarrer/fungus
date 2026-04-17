@@ -27,6 +27,23 @@ export function pointToSegmentDistance(
   return euclideanDistance(point, { x: projX, y: projY });
 }
 
+export function findNearestNode(state: GameState, position: Position): Node | null {
+  if (state.nodes.length === 0) return null;
+
+  let closest: Node | null = null;
+  let closestDist = Infinity;
+
+  for (const node of state.nodes) {
+    const dist = euclideanDistance(position, node.position);
+    if (dist < closestDist) {
+      closestDist = dist;
+      closest = node;
+    }
+  }
+
+  return closest;
+}
+
 export function findClosestFriendlyNode(
   state: GameState,
   playerId: string,

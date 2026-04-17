@@ -31,7 +31,7 @@ describe("resource economy", () => {
         defaultGameConfig,
         "player-1",
         "generator",
-        { x: 60, y: 300 },
+        { x: 75, y: 300 },
       );
 
       const connected = getConnectedNodes(state, "player-1");
@@ -47,7 +47,7 @@ describe("resource economy", () => {
         defaultGameConfig,
         "player-1",
         "generator",
-        { x: 60, y: 300 },
+        { x: 75, y: 300 },
       );
 
       const connected = getConnectedNodes(state, "player-2");
@@ -75,7 +75,7 @@ describe("resource economy", () => {
         defaultGameConfig,
         "player-1",
         "generator",
-        { x: 60, y: 300 },
+        { x: 75, y: 300 },
       );
 
       const newState = generateResources(state, defaultGameConfig);

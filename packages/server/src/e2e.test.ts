@@ -8,6 +8,7 @@ const fastConfig: GameConfig = {
     width: 800,
     height: 600,
     maxConnectionDistance: 100,
+    minNodeDistance: 20,
     spawnPoints: [
       { x: 50, y: 300 },
       { x: 750, y: 300 },
@@ -92,7 +93,7 @@ describe("End-to-end smoke test", () => {
 
     ws1.send(JSON.stringify({
       type: "queue-actions",
-      actions: [{ type: "PlaceNode", nodeType: "generator", position: { x: 60, y: 310 } }],
+      actions: [{ type: "PlaceNode", nodeType: "generator", position: { x: 75, y: 310 } }],
     }));
 
     await new Promise((resolve) => setTimeout(resolve, 300));

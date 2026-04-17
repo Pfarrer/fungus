@@ -16,7 +16,7 @@ export type {
 
 export { defaultGameConfig } from "./config.js";
 export { createInitialState } from "./initial-state.js";
-export { euclideanDistance, findClosestFriendlyNode, pointToSegmentDistance } from "./spatial.js";
+export { euclideanDistance, findNearestNode, findClosestFriendlyNode, pointToSegmentDistance } from "./spatial.js";
 export { validatePlaceNode, placeNode } from "./node-placement.js";
 export { getConnectedNodes, generateResources } from "./resource-economy.js";
 export { processActions, simulateTick } from "./game-loop.js";

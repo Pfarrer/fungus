@@ -3,7 +3,7 @@ import type { GameState, GameConfig } from "@fungus/game";
 import { getPalette, SELF, OPPONENT } from "./player-palette.js";
 
 const defaultConfig: GameConfig = {
-  map: { width: 800, height: 600, maxConnectionDistance: 100, spawnPoints: [], nodeTypeConfigs: {}, edgeHealth: 100 },
+  map: { width: 800, height: 600, maxConnectionDistance: 100, minNodeDistance: 20, spawnPoints: [], nodeTypeConfigs: {}, edgeHealth: 100 },
   resourceCap: 100,
   deathRatePerTick: 0,
   maxShieldReductionPercent: 0,

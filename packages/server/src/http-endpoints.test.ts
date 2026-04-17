@@ -8,6 +8,7 @@ const fastConfig: GameConfig = {
     width: 800,
     height: 600,
     maxConnectionDistance: 100,
+    minNodeDistance: 20,
     spawnPoints: [
       { x: 50, y: 300 },
       { x: 750, y: 300 },

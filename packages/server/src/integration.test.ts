@@ -8,6 +8,7 @@ const fastConfig: GameConfig = {
     width: 800,
     height: 600,
     maxConnectionDistance: 100,
+    minNodeDistance: 20,
     spawnPoints: [
       { x: 50, y: 300 },
       { x: 750, y: 300 },
@@ -122,7 +123,7 @@ describe("Backend integration: full game flow", () => {
 
     p1.ws.send(JSON.stringify({
       type: "queue-actions",
-      actions: [{ type: "PlaceNode", nodeType: "generator", position: { x: 60, y: 310 } }],
+      actions: [{ type: "PlaceNode", nodeType: "generator", position: { x: 75, y: 310 } }],
     }));
 
     await waitFor(500);
@@ -146,7 +147,7 @@ describe("Backend integration: full game flow", () => {
 
     p1.ws.send(JSON.stringify({
       type: "queue-actions",
-      actions: [{ type: "PlaceNode", nodeType: "generator", position: { x: 60, y: 310 } }],
+      actions: [{ type: "PlaceNode", nodeType: "generator", position: { x: 75, y: 310 } }],
     }));
 
     await waitFor(300);
@@ -202,7 +203,7 @@ describe("Backend integration: full game flow", () => {
 
     p1.ws.send(JSON.stringify({
       type: "queue-actions",
-      actions: [{ type: "PlaceNode", nodeType: "generator", position: { x: 60, y: 310 } }],
+      actions: [{ type: "PlaceNode", nodeType: "generator", position: { x: 75, y: 310 } }],
     }));
 
     await waitFor(250);
@@ -232,8 +233,8 @@ describe("Backend integration: full game flow", () => {
     p1.ws.send(JSON.stringify({
       type: "queue-actions",
       actions: [
-        { type: "PlaceNode", nodeType: "generator", position: { x: 60, y: 310 } },
-        { type: "PlaceNode", nodeType: "generator", position: { x: 55, y: 290 } },
+        { type: "PlaceNode", nodeType: "generator", position: { x: 75, y: 310 } },
+        { type: "PlaceNode", nodeType: "generator", position: { x: 100, y: 300 } },
       ],
     }));
 

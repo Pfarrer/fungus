@@ -90,7 +90,7 @@ describe("node placement", () => {
         defaultGameConfig,
         "player-1",
         "generator",
-        { x: 60, y: 300 },
+        { x: 75, y: 300 },
       );
       expect(result.valid).toBe(false);
       expect(result.reason).toContain("resources");
@@ -104,9 +104,75 @@ describe("node placement", () => {
         defaultGameConfig,
         "player-1",
         "generator",
-        { x: 60, y: 300 },
+        { x: 75, y: 300 },
       );
       expect(result.valid).toBe(true);
+    });
+
+    it("rejects placement too close to existing node", () => {
+      const state = freshState();
+      state.players[0].resources = 30;
+      const stateWithNode = placeNode(state, defaultGameConfig, "player-1", "generator", { x: 75, y: 300 });
+      stateWithNode.players[0].resources = 15;
+
+      const result = validatePlaceNode(
+        stateWithNode,
+        defaultGameConfig,
+        "player-1",
+        "generator",
+        { x: 80, y: 300 },
+      );
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe("Too close to existing node");
+    });
+
+    it("accepts placement at exactly minNodeDistance", () => {
+      const state = freshState();
+      state.players[0].resources = 30;
+      const stateWithNode = placeNode(state, defaultGameConfig, "player-1", "generator", { x: 75, y: 300 });
+      stateWithNode.players[0].resources = 15;
+
+      const result = validatePlaceNode(
+        stateWithNode,
+        defaultGameConfig,
+        "player-1",
+        "generator",
+        { x: 95, y: 300 },
+      );
+      expect(result.valid).toBe(true);
+    });
+
+    it("accepts placement beyond minNodeDistance", () => {
+      const state = freshState();
+      state.players[0].resources = 30;
+      const stateWithNode = placeNode(state, defaultGameConfig, "player-1", "generator", { x: 75, y: 300 });
+      stateWithNode.players[0].resources = 15;
+
+      const result = validatePlaceNode(
+        stateWithNode,
+        defaultGameConfig,
+        "player-1",
+        "generator",
+        { x: 100, y: 300 },
+      );
+      expect(result.valid).toBe(true);
+    });
+
+    it("enforces min distance against enemy nodes", () => {
+      const state = freshState();
+      state.players[1].resources = 15;
+      const stateWithEnemy = placeNode(state, defaultGameConfig, "player-2", "generator", { x: 725, y: 300 });
+
+      stateWithEnemy.players[0].resources = 15;
+      const result = validatePlaceNode(
+        stateWithEnemy,
+        defaultGameConfig,
+        "player-1",
+        "generator",
+        { x: 730, y: 300 },
+      );
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe("Too close to existing node");
     });
 
     it("accepts placement at exact max distance", () => {
@@ -133,7 +199,7 @@ describe("node placement", () => {
         defaultGameConfig,
         "player-1",
         "generator",
-        { x: 60, y: 300 },
+        { x: 75, y: 300 },
       );
 
       expect(newState.nodes).toHaveLength(3);
@@ -150,11 +216,11 @@ describe("node placement", () => {
         defaultGameConfig,
         "player-1",
         "generator",
-        { x: 60, y: 300 },
+        { x: 75, y: 300 },
       );
 
       const newNode = newState.nodes.find(
-        (n) => n.position.x === 60 && n.position.y === 300,
+        (n) => n.position.x === 75 && n.position.y === 300,
       );
       expect(newNode).toBeDefined();
       expect(newNode!.parentId).toBe("1");
@@ -188,7 +254,7 @@ describe("node placement", () => {
         defaultGameConfig,
         "player-1",
         "generator",
-        { x: 60, y: 300 },
+        { x: 75, y: 300 },
       );
 
       const newNode = newState.nodes.find(
@@ -212,7 +278,7 @@ describe("node placement", () => {
         defaultGameConfig,
         "player-1",
         "generator",
-        { x: 60, y: 300 },
+        { x: 75, y: 300 },
       );
 
       expect(state.nodes).toHaveLength(originalNodeCount);

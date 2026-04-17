@@ -27,7 +27,7 @@ describe("game loop", () => {
       state.players[0].resources = 15;
 
       const actions: GameAction[] = [
-        { type: "PlaceNode", nodeType: "generator", position: { x: 60, y: 300 } },
+        { type: "PlaceNode", nodeType: "generator", position: { x: 75, y: 300 } },
       ];
 
       const result = processActions(state, actions, "player-1", defaultGameConfig);
@@ -41,9 +41,9 @@ describe("game loop", () => {
       state.players[0].resources = 30;
 
       const actions: GameAction[] = [
-        { type: "PlaceNode", nodeType: "generator", position: { x: 60, y: 300 } },
+        { type: "PlaceNode", nodeType: "generator", position: { x: 75, y: 300 } },
         { type: "PlaceNode", nodeType: "generator", position: { x: 300, y: 300 } },
-        { type: "PlaceNode", nodeType: "generator", position: { x: 80, y: 300 } },
+        { type: "PlaceNode", nodeType: "generator", position: { x: 130, y: 300 } },
       ];
 
       const result = processActions(state, actions, "player-1", defaultGameConfig);
@@ -56,8 +56,8 @@ describe("game loop", () => {
       state.players[0].resources = 30;
 
       const actions: GameAction[] = [
-        { type: "PlaceNode", nodeType: "generator", position: { x: 60, y: 300 } },
-        { type: "PlaceNode", nodeType: "generator", position: { x: 120, y: 300 } },
+        { type: "PlaceNode", nodeType: "generator", position: { x: 75, y: 300 } },
+        { type: "PlaceNode", nodeType: "generator", position: { x: 125, y: 300 } },
       ];
 
       const result = processActions(state, actions, "player-1", defaultGameConfig);
@@ -90,7 +90,7 @@ describe("game loop", () => {
         [
           "player-1",
           [
-            { type: "PlaceNode", nodeType: "generator", position: { x: 60, y: 300 } },
+            { type: "PlaceNode", nodeType: "generator", position: { x: 75, y: 300 } },
           ],
         ],
       ]);
@@ -108,8 +108,8 @@ describe("game loop", () => {
         [
           "player-1",
           [
-            { type: "PlaceNode", nodeType: "generator", position: { x: 60, y: 300 } },
-            { type: "PlaceNode", nodeType: "generator", position: { x: 120, y: 300 } },
+            { type: "PlaceNode", nodeType: "generator", position: { x: 75, y: 300 } },
+            { type: "PlaceNode", nodeType: "generator", position: { x: 125, y: 300 } },
           ],
         ],
       ]);

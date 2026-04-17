@@ -48,8 +48,6 @@ Each player's nodes SHALL form a tree structure rooted at their root node. A nod
 - **WHEN** a player attempts to place a node such that connecting it would form a cycle
 - **THEN** the action is rejected (impossible with tree structure since new nodes always connect to existing nodes as leaves)
 
-### Requirement: Placement validation
-
 ### Requirement: Node and edge health
 Nodes and edges SHALL have health points. When health reaches zero, the node or edge is destroyed.
 
@@ -62,7 +60,7 @@ Nodes and edges SHALL have health points. When health reaches zero, the node or 
 - **THEN** the edge is removed and the tree may become disconnected
 
 ### Requirement: Placement validation
-A node placement action SHALL be valid only if: (1) the target position is within max connection distance of at least one existing friendly node, (2) the target position is not occupied by another node, (3) the target position is within the map boundaries, (4) the player has sufficient resources to build the node type.
+A node placement action SHALL be valid only if: (1) the target position is within max connection distance of at least one existing friendly node, (2) the target position is not occupied by another node, (3) the target position is within the map boundaries, (4) the target position is at least `minNodeDistance` away from every existing node (friendly and enemy), (5) the player has sufficient resources to build the node type.
 
 #### Scenario: Fully valid placement
 - **WHEN** a player queues a node placement that satisfies all validation rules
@@ -75,4 +73,16 @@ A node placement action SHALL be valid only if: (1) the target position is withi
 #### Scenario: Insufficient resources
 - **WHEN** a player queues a turret placement but has fewer resources than the turret cost
 - **THEN** the action is rejected
+
+#### Scenario: Too close to any node
+- **WHEN** a player queues a node placement at a position that is less than `minNodeDistance` away from any existing node
+- **THEN** the action is rejected with a minimum distance error
+
+#### Scenario: Exactly at minimum distance
+- **WHEN** a player queues a node placement at exactly `minNodeDistance` from the nearest existing node
+- **THEN** the placement succeeds (inclusive boundary)
+
+#### Scenario: Beyond minimum distance but within connection range
+- **WHEN** `minNodeDistance` is 20 and `maxConnectionDistance` is 100 and a player places a node 50 units from the nearest existing node
+- **THEN** the placement succeeds
 

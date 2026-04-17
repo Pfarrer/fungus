@@ -1,5 +1,5 @@
 import type { GameState, GameConfig, Position } from "./types.js";
-import { findClosestFriendlyNodeWithinRange } from "./spatial.js";
+import { findClosestFriendlyNodeWithinRange, findNearestNode, euclideanDistance } from "./spatial.js";
 
 export interface ValidationResult {
   valid: boolean;
@@ -28,6 +28,14 @@ export function validatePlaceNode(
   );
   if (occupied) {
     return { valid: false, reason: "Position is already occupied" };
+  }
+
+  const nearestNode = findNearestNode(state, position);
+  if (nearestNode !== null) {
+    const dist = euclideanDistance(position, nearestNode.position);
+    if (dist < config.map.minNodeDistance) {
+      return { valid: false, reason: "Too close to existing node" };
+    }
   }
 
   const closestNode = findClosestFriendlyNodeWithinRange(

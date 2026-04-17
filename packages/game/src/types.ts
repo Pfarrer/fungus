@@ -59,6 +59,7 @@ export interface MapConfig {
   width: number;
   height: number;
   maxConnectionDistance: number;
+  minNodeDistance: number;
   spawnPoints: Position[];
   nodeTypeConfigs: Record<string, NodeTypeConfig>;
   edgeHealth: number;
