@@ -55,16 +55,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+      - id: canary-version
+        run: |
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+          LATEST_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]' | head -1)
+          if [ -z "$LATEST_TAG" ]; then
+            VERSION="0.0.1-canary.$SHORT_SHA"
+          else
+            BASE="${LATEST_TAG#v}"
+            IFS='.' read -r major minor patch <<< "$BASE"
+            VERSION="$major.$minor.$((patch + 1))-canary.$SHORT_SHA"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
         with:
           push: true
-          tags: ghcr.io/${{ env.OWNER }}/fungus/server:sha-${{ github.sha }}
+          tags: |
+            ghcr.io/${{ env.OWNER }}/fungus/server:sha-${{ github.sha }}
+            ghcr.io/${{ env.OWNER }}/fungus/server:${{ steps.canary-version.outputs.version }}
 
   canary-release:
     needs: build
@@ -72,23 +88,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
+          fetch-depth: 0
       - id: bump
         run: |
-          CURRENT=$(jq -r '.version' package.json)
-          IFS='.' read -r major minor patch <<< "$CURRENT"
-          NEW="$major.$minor.$((patch + 1))"
-          jq --arg v "$NEW" '.version = $v' package.json > tmp.json && mv tmp.json package.json
-          echo "version=$NEW" >> "$GITHUB_OUTPUT"
-      - run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add package.json
-          git commit -m "chore: bump version to ${{ steps.bump.outputs.version }}"
-          git push
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+          LATEST_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]' | head -1)
+          if [ -z "$LATEST_TAG" ]; then
+            VERSION="0.0.1-canary.$SHORT_SHA"
+          else
+            BASE="${LATEST_TAG#v}"
+            IFS='.' read -r major minor patch <<< "$BASE"
+            VERSION="$major.$minor.$((patch + 1))-canary.$SHORT_SHA"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.bump.outputs.version }}
