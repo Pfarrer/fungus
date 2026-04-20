@@ -15,6 +15,6 @@
 
 ## 4. Verification
 
-- [ ] 4.1 Manually trigger or push to main and verify: no chore commit appears in git history
-- [ ] 4.2 Verify canary release tag follows the `<next-patch>-canary.<sha>` format
-- [ ] 4.3 Verify Docker image has both `sha-<sha>` and `<version>-canary.<sha>` tags
+- [x] 4.1 Manually trigger or push to main and verify: no chore commit appears in git history
+- [x] 4.2 Verify canary release tag follows the `<next-patch>-canary.<sha>` format
+- [x] 4.3 Verify Docker image has both `sha-<sha>` and `<version>-canary.<sha>` tags
