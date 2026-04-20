@@ -64,10 +64,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
-      - id: canary-version
-        run: |
+      - run: |
           SHORT_SHA=$(git rev-parse --short=7 HEAD)
-          LATEST_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]' | head -1 || true)
+          LATEST_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
           if [ -z "$LATEST_TAG" ]; then
             VERSION="0.0.1-canary.$SHORT_SHA"
           else
@@ -75,13 +74,13 @@ jobs:
             IFS='.' read -r major minor patch <<< "$BASE"
             VERSION="$major.$minor.$((patch + 1))-canary.$SHORT_SHA"
           fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "CANARY_VERSION=$VERSION" >> "$GITHUB_ENV"
       - uses: docker/build-push-action@v6
         with:
           push: true
           tags: |
             ghcr.io/${{ env.OWNER }}/fungus/server:sha-${{ github.sha }}
-            ghcr.io/${{ env.OWNER }}/fungus/server:${{ steps.canary-version.outputs.version }}
+            ghcr.io/${{ env.OWNER }}/fungus/server:${{ env.CANARY_VERSION }}
 
   canary-release:
     needs: build
@@ -94,7 +93,7 @@ jobs:
       - id: bump
         run: |
           SHORT_SHA=$(git rev-parse --short=7 HEAD)
-          LATEST_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]' | head -1 || true)
+          LATEST_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
           if [ -z "$LATEST_TAG" ]; then
             VERSION="0.0.1-canary.$SHORT_SHA"
           else
