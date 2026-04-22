@@ -46,6 +46,13 @@ describe("createInitialState", () => {
     }
   });
 
+  it("players start with empty construction queues", () => {
+    const state = createInitialState(defaultGameConfig);
+    for (const player of state.players) {
+      expect(player.constructions).toHaveLength(0);
+    }
+  });
+
   it("starts at tick 0 with no winner", () => {
     const state = createInitialState(defaultGameConfig);
     expect(state.tick).toBe(0);

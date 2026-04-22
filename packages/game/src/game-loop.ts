@@ -1,6 +1,7 @@
 import type { GameAction, GameConfig, GameState } from "./types.js";
 import { placeNode } from "./node-placement.js";
-import { generateResources } from "./resource-economy.js";
+import { generateResources, consumeResources } from "./resource-economy.js";
+import { fundConstructions, activateCompletedConstructions } from "./construction.js";
 import { resolveCombat } from "./combat.js";
 import { resolveDeath } from "./death.js";
 
@@ -39,6 +40,9 @@ export function simulateTick(
   }
 
   currentState = generateResources(currentState, config);
+  currentState = consumeResources(currentState, config);
+  currentState = fundConstructions(currentState);
+  currentState = activateCompletedConstructions(currentState, config);
   currentState = resolveCombat(currentState, config);
   currentState = resolveDeath(currentState, config);
   currentState = { ...currentState, tick: currentState.tick + 1 };

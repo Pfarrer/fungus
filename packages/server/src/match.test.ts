@@ -26,7 +26,6 @@ const testConfig: GameConfig = {
     edgeHealth: 20,
   },
   tickDurationMs: 100,
-  resourceCap: 500,
   deathRatePerTick: 5,
   maxShieldReductionPercent: 90,
 };

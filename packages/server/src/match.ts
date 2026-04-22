@@ -66,6 +66,10 @@ export class Match {
     return !!conn && conn.ws.readyState === WebSocket.OPEN;
   }
 
+  getPlayerConnection(playerId: string): ClientConnection | undefined {
+    return this.players.get(playerId);
+  }
+
   queueActions(playerId: string, actions: GameAction[]): void {
     const queue = this.actionQueues.get(playerId);
     if (queue) {

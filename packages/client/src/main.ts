@@ -19,6 +19,11 @@ import {
   hideMenu,
 } from "./menu.js";
 import { computePresenceSnapshot } from "./presence.js";
+import {
+  writeSessionToUrl,
+  clearSessionFromUrl,
+  readSessionFromUrl,
+} from "./urlState.js";
 
 let gameState: GameState | null = null;
 let previousGameState: GameState | null = null;
@@ -42,6 +47,8 @@ interface PendingNode {
   position: { x: number; y: number };
   nodeType: string;
   playerId: string;
+  funded?: number;
+  totalCost?: number;
 }
 
 let pendingNodes: PendingNode[] = [];
@@ -63,9 +70,7 @@ function init(): void {
     setupInteraction();
     setupDebugToggle();
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlMatchId = urlParams.get("matchId");
-    const urlPlayerId = urlParams.get("playerId");
+    const { matchId: urlMatchId, playerId: urlPlayerId } = readSessionFromUrl();
 
     if (urlMatchId && urlPlayerId) {
       currentPlayerId = urlPlayerId;
@@ -164,13 +169,13 @@ async function startHosting(playerName: string): Promise<void> {
     const { code, matchId, playerId } = data;
 
     currentPlayerId = playerId;
-    renderHostingScreen(code);
+    renderHostingScreen(code, () => {
+      returnToMenu();
+    });
 
-    const url = new URL(window.location.href);
-    url.searchParams.set("matchId", matchId);
-    url.searchParams.set("playerId", playerId);
-    window.history.replaceState({}, "", url.toString());
+    writeSessionToUrl(matchId, playerId);
 
+    waitingForOpponent = true;
     setupConnection(matchId, playerId, playerName);
     createUI();
     updateHUD();
@@ -192,10 +197,7 @@ async function startJoining(playerName: string, code: string): Promise<void> {
     const { matchId, playerId } = data;
     currentPlayerId = playerId;
 
-    const url = new URL(window.location.href);
-    url.searchParams.set("matchId", matchId);
-    url.searchParams.set("playerId", playerId);
-    window.history.replaceState({}, "", url.toString());
+    writeSessionToUrl(matchId, playerId);
 
     screenManager.transition("playing");
     hideMenu();
@@ -222,7 +224,7 @@ function setupConnection(matchId: string, playerId: string, playerName?: string)
     if (!waitingForOpponent && opponentConnected === null) {
       opponentConnected = true;
     }
-    if (screenManager.state !== "playing") {
+    if (screenManager.state !== "playing" && !waitingForOpponent) {
       screenManager.transition("playing");
       hideMenu();
     }
@@ -232,8 +234,13 @@ function setupConnection(matchId: string, playerId: string, playerName?: string)
   connection.on("tick-result", (data) => {
     previousGameState = gameState;
     gameState = data.gameState;
+    waitingForOpponent = false;
     if (!waitingForOpponent && opponentConnected === null) {
       opponentConnected = true;
+    }
+    if (screenManager.state !== "playing") {
+      screenManager.transition("playing");
+      hideMenu();
     }
     smoothCountdownValue = null;
     clearCountdownInterval();
@@ -264,8 +271,18 @@ function setupConnection(matchId: string, playerId: string, playerName?: string)
   connection.on("presence", (data) => {
     if (data.playerId !== currentPlayerId) {
       opponentConnected = data.connected;
+      if (waitingForOpponent && data.connected && screenManager.state !== "playing") {
+        waitingForOpponent = false;
+        screenManager.transition("playing");
+        hideMenu();
+      }
       updateHUD();
     }
+  });
+
+  connection.on("error", (data) => {
+    console.error("Server error:", data.message);
+    returnToMenu();
   });
 
   connection.onStatusChange((status) => {
@@ -346,7 +363,6 @@ function updateCountdownDisplay(): void {
 
 function renderState(): void {
   if (!gameState) return;
-  waitingForOpponent = false;
   renderer.render(gameState, config, currentPlayerId ?? undefined);
 
   for (const pending of pendingNodes) {
@@ -368,6 +384,9 @@ function renderState(): void {
 function checkMatchEnd(): void {
   if (gameState?.winner && !matchEndShown) {
     matchEndShown = true;
+    if (connection) {
+      connection.markGameEnded();
+    }
     showMatchEndScreen();
   }
 }
@@ -471,10 +490,7 @@ function showAbandonedMatchScreen(): void {
 
 function returnToMenu(): void {
   cleanupGame();
-  const url = new URL(window.location.href);
-  url.searchParams.delete("matchId");
-  url.searchParams.delete("playerId");
-  window.history.replaceState({}, "", url.toString());
+  clearSessionFromUrl();
   showMenu({
     onSinglePlayer: (playerName: string) => {
       currentPlayerId = "player-1";
@@ -741,7 +757,22 @@ function clearPreview(): void {
 
 function renderGhostNodes(): void {
   if (gameState) {
-    renderer.renderGhostNodes(pendingNodes, gameState, config, currentPlayerId ?? undefined);
+    const constructions: PendingNode[] = [];
+    if (currentPlayerId) {
+      const player = gameState.players.find((p) => p.id === currentPlayerId);
+      if (player) {
+        for (const c of player.constructions) {
+          constructions.push({
+            position: c.position,
+            nodeType: c.nodeType,
+            playerId: c.playerId,
+            funded: c.funded,
+            totalCost: c.totalCost,
+          });
+        }
+      }
+    }
+    renderer.renderGhostNodes([...pendingNodes, ...constructions], gameState, config, currentPlayerId ?? undefined);
   }
 }
 
@@ -776,7 +807,7 @@ function createUI(): void {
   for (const [type, typeConfig] of Object.entries(config.map.nodeTypeConfigs)) {
     if (type === "root") continue;
     const btn = document.createElement("button");
-    btn.textContent = `${type} (${typeConfig.cost})`;
+    btn.textContent = `${type} (${typeConfig.cost} to build)`;
     btn.dataset.type = type;
     btn.style.cssText = `
       padding: 8px 16px; border: 2px solid #4a4e69;
@@ -860,7 +891,16 @@ function updateHUD(): void {
     html += `<div>Tick: <span style="color:#e94560">${gameState.tick}</span></div>`;
   }
 
-  html += `<div>Resources: <span style="color:#53d769">${resources}</span> / ${config.resourceCap}</div>`;
+  html += `<div>Resources: <span style="color:#53d769">${resources}</span></div>`;
+
+  if (player && player.constructions.length > 0) {
+    html += `<div style="margin-top:4px;font-size:12px;color:#999;">Building:`;
+    for (const c of player.constructions) {
+      const pct = c.totalCost > 0 ? Math.round((c.funded / c.totalCost) * 100) : 100;
+      html += `<div style="padding-left:8px;">${c.nodeType} ${pct}%</div>`;
+    }
+    html += `</div>`;
+  }
 
   if (smoothCountdownValue !== null) {
     html += `<div>Next tick: <span style="color:#4ecdc4" id="countdown-value">${smoothCountdownValue.toFixed(1)}</span>s</div>`;

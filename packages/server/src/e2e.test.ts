@@ -20,7 +20,6 @@ const fastConfig: GameConfig = {
     edgeHealth: 20,
   },
   tickDurationMs: 50,
-  resourceCap: 500,
   deathRatePerTick: 5,
   maxShieldReductionPercent: 90,
 };
@@ -38,8 +37,19 @@ describe("End-to-end smoke test", () => {
     await new Promise<void>((resolve) => wss!.on("listening", resolve));
 
     const port = (wss.address() as { port: number }).port;
-    const url1 = `ws://localhost:${port}?matchId=e2e-test&playerId=player-1`;
-    const url2 = `ws://localhost:${port}?matchId=e2e-test&playerId=player-2`;
+
+    const hostRes = await fetch(`http://localhost:${port}/host`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playerName: "P1" }),
+    });
+    const hostData = await hostRes.json();
+
+    const joinRes = await fetch(`http://localhost:${port}/join?code=${hostData.code}`);
+    const joinData = await joinRes.json();
+
+    const url1 = `ws://localhost:${port}?matchId=${hostData.matchId}&playerId=${hostData.playerId}`;
+    const url2 = `ws://localhost:${port}?matchId=${hostData.matchId}&playerId=${joinData.playerId}`;
 
     const ws1 = new WebSocket(url1);
     const ws2 = new WebSocket(url2);
@@ -75,9 +85,19 @@ describe("End-to-end smoke test", () => {
     await new Promise<void>((resolve) => server.on("listening", resolve));
 
     const port = (server.address() as { port: number }).port;
-    const matchId = "e2e-actions";
-    const url1 = `ws://localhost:${port}?matchId=${matchId}&playerId=player-1`;
-    const url2 = `ws://localhost:${port}?matchId=${matchId}&playerId=player-2`;
+
+    const hostRes = await fetch(`http://localhost:${port}/host`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playerName: "P1" }),
+    });
+    const hostData = await hostRes.json();
+
+    const joinRes = await fetch(`http://localhost:${port}/join?code=${hostData.code}`);
+    const joinData = await joinRes.json();
+
+    const url1 = `ws://localhost:${port}?matchId=${hostData.matchId}&playerId=${hostData.playerId}`;
+    const url2 = `ws://localhost:${port}?matchId=${hostData.matchId}&playerId=${joinData.playerId}`;
 
     const ws1 = new WebSocket(url1);
     const ws2 = new WebSocket(url2);
@@ -102,7 +122,9 @@ describe("End-to-end smoke test", () => {
     expect(tickResults.length).toBeGreaterThanOrEqual(2);
 
     const latestState = tickResults[tickResults.length - 1].gameState;
-    expect(latestState.nodes.length).toBeGreaterThanOrEqual(2);
+    const player1 = latestState.players.find((p: any) => p.id === hostData.playerId);
+    expect(player1.constructions.length).toBeGreaterThanOrEqual(1);
+    expect(player1.constructions[0].nodeType).toBe("generator");
 
     ws1.close();
     ws2.close();

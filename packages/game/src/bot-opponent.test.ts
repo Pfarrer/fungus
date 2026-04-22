@@ -36,7 +36,6 @@ describe("generateBotActions", () => {
     for (const action of actions) {
       const nodeConfig = config.map.nodeTypeConfigs[action.nodeType];
       expect(nodeConfig).toBeDefined();
-      expect(state.players[1].resources).toBeGreaterThanOrEqual(nodeConfig!.cost);
     }
   });
 

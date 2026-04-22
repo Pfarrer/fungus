@@ -17,6 +17,7 @@ export function createInitialState(config: GameConfig): GameState {
     id: `player-${index + 1}`,
     resources: 0,
     spawnPoint,
+    constructions: [],
   }));
 
   const nodes: Node[] = [];

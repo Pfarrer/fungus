@@ -4,7 +4,6 @@ import { getPalette, SELF, OPPONENT } from "./player-palette.js";
 
 const defaultConfig: GameConfig = {
   map: { width: 800, height: 600, maxConnectionDistance: 100, minNodeDistance: 20, spawnPoints: [], nodeTypeConfigs: {}, edgeHealth: 100 },
-  resourceCap: 100,
   deathRatePerTick: 0,
   maxShieldReductionPercent: 0,
   tickDurationMs: 5000,
@@ -21,8 +20,8 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     nodes: [],
     edges: [],
     players: [
-      { id: "p1", resources: 50, name: "Player 1", spawnPoint: { x: 100, y: 300 } },
-      { id: "p2", resources: 50, name: "Player 2", spawnPoint: { x: 700, y: 300 } },
+      { id: "p1", resources: 50, name: "Player 1", spawnPoint: { x: 100, y: 300 }, constructions: [] },
+      { id: "p2", resources: 50, name: "Player 2", spawnPoint: { x: 700, y: 300 }, constructions: [] },
     ],
     tick: 0,
     winner: null,

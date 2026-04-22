@@ -21,7 +21,6 @@ const fastConfig: GameConfig = {
     edgeHealth: 20,
   },
   tickDurationMs: 100,
-  resourceCap: 500,
   deathRatePerTick: 5,
   maxShieldReductionPercent: 90,
 };
@@ -42,6 +41,27 @@ function waitFor(ms: number): Promise<void> {
 
 function getPort(server: any): number {
   return (server.address() as { port: number }).port;
+}
+
+async function createMatchAndConnect(port: number): Promise<{
+  matchId: string;
+  p1: { ws: WebSocket; msgs: any[] };
+  p2: { ws: WebSocket; msgs: any[] };
+}> {
+  const hostRes = await fetch(`http://localhost:${port}/host`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ playerName: "P1" }),
+  });
+  const hostData = await hostRes.json();
+  const matchId = hostData.matchId;
+
+  const joinRes = await fetch(`http://localhost:${port}/join?code=${hostData.code}`);
+  const joinData = await joinRes.json();
+
+  const p1 = await connectPlayer(port, matchId, hostData.playerId);
+  const p2 = await connectPlayer(port, matchId, joinData.playerId);
+  return { matchId, p1, p2 };
 }
 
 describe("Backend integration: full game flow", () => {
@@ -67,7 +87,14 @@ describe("Backend integration: full game flow", () => {
     await new Promise<void>((resolve) => server!.on("listening", resolve));
     const port = getPort(server!);
 
-    const p1 = await connectPlayer(port, "test-waiting", "player-1");
+    const hostRes = await fetch(`http://localhost:${port}/host`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playerName: "P1" }),
+    });
+    const hostData = await hostRes.json();
+
+    const p1 = await connectPlayer(port, hostData.matchId, hostData.playerId);
     openSockets.push(p1.ws);
 
     await waitFor(50);
@@ -80,7 +107,9 @@ describe("Backend integration: full game flow", () => {
     expect(matchStateMsgs[0].gameState.nodes.length).toBe(2);
     expect(matchStateMsgs[0].gameState.players.length).toBe(2);
 
-    const p2 = await connectPlayer(port, "test-waiting", "player-2");
+    const joinRes = await fetch(`http://localhost:${port}/join?code=${hostData.code}`);
+    const joinData = await joinRes.json();
+    const p2 = await connectPlayer(port, hostData.matchId, joinData.playerId);
     openSockets.push(p2.ws);
 
     await waitFor(350);
@@ -96,8 +125,7 @@ describe("Backend integration: full game flow", () => {
     await new Promise<void>((resolve) => server!.on("listening", resolve));
     const port = getPort(server!);
 
-    const p1 = await connectPlayer(port, "test-ticks", "player-1");
-    const p2 = await connectPlayer(port, "test-ticks", "player-2");
+    const { p1, p2 } = await createMatchAndConnect(port);
     openSockets.push(p1.ws, p2.ws);
 
     await waitFor(550);
@@ -110,13 +138,12 @@ describe("Backend integration: full game flow", () => {
     }
   });
 
-  it("queued actions create new nodes in tick-result", async () => {
+  it("queued actions create constructions in tick-result", async () => {
     server = createServer(fastConfig, 0);
     await new Promise<void>((resolve) => server!.on("listening", resolve));
     const port = getPort(server!);
 
-    const p1 = await connectPlayer(port, "test-actions", "player-1");
-    const p2 = await connectPlayer(port, "test-actions", "player-2");
+    const { p1, p2 } = await createMatchAndConnect(port);
     openSockets.push(p1.ws, p2.ws);
 
     await waitFor(150);
@@ -134,6 +161,8 @@ describe("Backend integration: full game flow", () => {
     const latestState = tickResults[tickResults.length - 1].gameState;
     const player1Nodes = latestState.nodes.filter((n: any) => n.playerId === "player-1");
     expect(player1Nodes.length).toBeGreaterThanOrEqual(2);
+    const genNode = player1Nodes.find((n: any) => n.nodeType === "generator");
+    expect(genNode).toBeDefined();
   });
 
   it("both players see identical game state in tick-result", async () => {
@@ -141,8 +170,7 @@ describe("Backend integration: full game flow", () => {
     await new Promise<void>((resolve) => server!.on("listening", resolve));
     const port = getPort(server!);
 
-    const p1 = await connectPlayer(port, "test-consistency", "player-1");
-    const p2 = await connectPlayer(port, "test-consistency", "player-2");
+    const { p1, p2 } = await createMatchAndConnect(port);
     openSockets.push(p1.ws, p2.ws);
 
     p1.ws.send(JSON.stringify({
@@ -166,13 +194,12 @@ describe("Backend integration: full game flow", () => {
     expect(latest1.tick).toEqual(latest2.tick);
   });
 
-  it("resources accumulate over ticks for connected root nodes", async () => {
+  it("resources are discarded after each tick (surplus model)", async () => {
     server = createServer(fastConfig, 0);
     await new Promise<void>((resolve) => server!.on("listening", resolve));
     const port = getPort(server!);
 
-    const p1 = await connectPlayer(port, "test-resources", "player-1");
-    const p2 = await connectPlayer(port, "test-resources", "player-2");
+    const { p1, p2 } = await createMatchAndConnect(port);
     openSockets.push(p1.ws, p2.ws);
 
     await waitFor(350);
@@ -180,23 +207,21 @@ describe("Backend integration: full game flow", () => {
     const tickResults = p1.msgs.filter((m: any) => m.type === "tick-result");
     expect(tickResults.length).toBeGreaterThanOrEqual(2);
 
-    const firstResources = tickResults[0].gameState.players.find(
-      (p: any) => p.id === "player-1",
-    ).resources;
-    const lastResources = tickResults[tickResults.length - 1].gameState.players.find(
-      (p: any) => p.id === "player-1",
-    ).resources;
-
-    expect(lastResources).toBeGreaterThan(firstResources);
+    for (const tr of tickResults) {
+      const p1 = tr.gameState.players.find(
+        (p: any) => p.id === "player-1",
+      );
+      if (!p1) continue;
+      expect(p1.resources).toBe(0);
+    }
   });
 
-  it("action queue is drained after tick — second tick has no extra nodes", async () => {
+  it("action queue is drained after tick — second tick has no extra constructions", async () => {
     server = createServer(fastConfig, 0);
     await new Promise<void>((resolve) => server!.on("listening", resolve));
     const port = getPort(server!);
 
-    const p1 = await connectPlayer(port, "test-drain", "player-1");
-    const p2 = await connectPlayer(port, "test-drain", "player-2");
+    const { p1, p2 } = await createMatchAndConnect(port);
     openSockets.push(p1.ws, p2.ws);
 
     await waitFor(150);
@@ -209,14 +234,18 @@ describe("Backend integration: full game flow", () => {
     await waitFor(250);
 
     const tickResults = p1.msgs.filter((m: any) => m.type === "tick-result");
-    const nodesAfterAction = tickResults[tickResults.length - 1].gameState.nodes.length;
+    const constructionsAfterAction = tickResults[tickResults.length - 1].gameState.players.find(
+      (p: any) => p.id === "player-1",
+    ).constructions.length;
 
     await waitFor(200);
 
     const laterResults = p1.msgs.filter((m: any) => m.type === "tick-result");
-    const nodesAfterDrain = laterResults[laterResults.length - 1].gameState.nodes.length;
+    const constructionsAfterDrain = laterResults[laterResults.length - 1].gameState.players.find(
+      (p: any) => p.id === "player-1",
+    ).constructions.length;
 
-    expect(nodesAfterDrain).toBe(nodesAfterAction);
+    expect(constructionsAfterDrain).toBe(constructionsAfterAction);
   });
 
   it("multiple actions queued in same tick are all processed", async () => {
@@ -224,8 +253,7 @@ describe("Backend integration: full game flow", () => {
     await new Promise<void>((resolve) => server!.on("listening", resolve));
     const port = getPort(server!);
 
-    const p1 = await connectPlayer(port, "test-multi", "player-1");
-    const p2 = await connectPlayer(port, "test-multi", "player-2");
+    const { p1, p2 } = await createMatchAndConnect(port);
     openSockets.push(p1.ws, p2.ws);
 
     await waitFor(150);
@@ -243,7 +271,49 @@ describe("Backend integration: full game flow", () => {
     const tickResults = p1.msgs.filter((m: any) => m.type === "tick-result");
     expect(tickResults.length).toBeGreaterThanOrEqual(3);
     const latestState = tickResults[tickResults.length - 1].gameState;
+    const player1 = latestState.players.find((p: any) => p.id === "player-1");
     const player1Nodes = latestState.nodes.filter((n: any) => n.playerId === "player-1");
     expect(player1Nodes.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("full cycle: host → join → disconnect → reconnect → play continues", async () => {
+    server = createServer(fastConfig, 0);
+    await new Promise<void>((resolve) => server!.on("listening", resolve));
+    const port = getPort(server!);
+
+    const hostRes = await fetch(`http://localhost:${port}/host`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playerName: "Host" }),
+    });
+    const hostData = await hostRes.json();
+
+    const joinRes = await fetch(`http://localhost:${port}/join?code=${hostData.code}`);
+    const joinData = await joinRes.json();
+
+    const p1 = await connectPlayer(port, hostData.matchId, hostData.playerId);
+    const p2 = await connectPlayer(port, hostData.matchId, joinData.playerId);
+    openSockets.push(p1.ws, p2.ws);
+
+    await waitFor(200);
+
+    const initialTicks = p1.msgs.filter((m: any) => m.type === "tick-result").length;
+    expect(initialTicks).toBeGreaterThanOrEqual(1);
+
+    p1.ws.close();
+    openSockets = openSockets.filter((ws) => ws !== p1.ws);
+    await waitFor(50);
+
+    const p1Reconnected = await connectPlayer(port, hostData.matchId, hostData.playerId);
+    openSockets.push(p1Reconnected.ws);
+
+    await waitFor(200);
+
+    const matchStateOnReconnect = p1Reconnected.msgs.filter((m: any) => m.type === "match-state");
+    expect(matchStateOnReconnect.length).toBe(1);
+    expect(matchStateOnReconnect[0].gameState.tick).toBeGreaterThan(0);
+
+    const ticksAfterReconnect = p1Reconnected.msgs.filter((m: any) => m.type === "tick-result");
+    expect(ticksAfterReconnect.length).toBeGreaterThanOrEqual(1);
   });
 });

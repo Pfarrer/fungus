@@ -1,3 +1,4 @@
+import { WebSocket } from "ws";
 import { Match } from "./match.js";
 import type { ClientConnection } from "./protocol.js";
 import type { GameAction, GameConfig } from "@fungus/game";
@@ -11,21 +12,29 @@ export class MatchManager {
   private matchIdToCode: Map<string, string> = new Map();
   private reservationTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
 
-  handleConnect(client: ClientConnection, config?: GameConfig): void {
-    let match = this.matches.get(client.matchId);
+  handleConnect(client: ClientConnection, config?: GameConfig): "ok" | "match-not-found" {
+    const match = this.matches.get(client.matchId);
 
     if (!match) {
-      match = new Match(client.matchId, config);
-      this.matches.set(client.matchId, match);
+      return "match-not-found";
     }
 
     const playerName = client.playerName || client.playerId;
     match.setPlayerName(client.playerId, playerName);
 
-    match.addPlayer(client);
-    match.tryStart();
+    if (match.isPlayerConnected(client.playerId)) {
+      const oldConn = match.getPlayerConnection(client.playerId);
+      if (oldConn) {
+        oldConn.ws.close();
+      }
+      match.reconnectPlayer(client);
+    } else {
+      match.addPlayer(client);
+      match.tryStart();
+    }
 
     this.clearReservationTimer(client.matchId);
+    return "ok";
   }
 
   handleDisconnect(matchId: string, playerId: string): void {

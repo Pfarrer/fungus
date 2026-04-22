@@ -24,11 +24,22 @@ export interface Edge {
   maxHealth: number;
 }
 
+export interface Construction {
+  id: string;
+  playerId: string;
+  nodeType: NodeType;
+  position: Position;
+  parentId: string;
+  totalCost: number;
+  funded: number;
+}
+
 export interface Player {
   id: string;
   resources: number;
   spawnPoint: Position;
   name?: string;
+  constructions: Construction[];
 }
 
 export interface GameState {
@@ -68,7 +79,6 @@ export interface MapConfig {
 export interface GameConfig {
   map: MapConfig;
   tickDurationMs: number;
-  resourceCap: number;
   deathRatePerTick: number;
   maxShieldReductionPercent: number;
 }

@@ -4,7 +4,7 @@ import { MatchManager } from "./match-manager.js";
 import type { ClientConnection } from "./protocol.js";
 import type { GameConfig } from "@fungus/game";
 
-function createMockClient(playerId: string, matchId = "test-match"): ClientConnection {
+function createMockClient(playerId: string, matchId: string): ClientConnection {
   const ws = { send: vi.fn(), readyState: 1 } as unknown as WebSocket;
   return { ws, matchId, playerId };
 }
@@ -26,7 +26,6 @@ const testConfig: GameConfig = {
     edgeHealth: 20,
   },
   tickDurationMs: 50,
-  resourceCap: 500,
   deathRatePerTick: 5,
   maxShieldReductionPercent: 90,
 };
@@ -43,34 +42,37 @@ describe("MatchManager", () => {
     vi.useRealTimers();
   });
 
-  it("creates a new match on first player connect", () => {
-    const client = createMockClient("player-1");
+  it("creates a match via createMatchWithCode and adds first player", () => {
+    const { matchId } = manager.createMatchWithCode(testConfig);
+    const client = createMockClient("player-1", matchId);
     manager.handleConnect(client, testConfig);
 
-    const match = manager.getMatch("test-match");
+    const match = manager.getMatch(matchId);
     expect(match).toBeDefined();
     expect(match!.playerCount()).toBe(1);
   });
 
   it("adds second player to existing match", () => {
-    const client1 = createMockClient("player-1");
-    const client2 = createMockClient("player-2");
+    const { matchId } = manager.createMatchWithCode(testConfig);
+    const client1 = createMockClient("player-1", matchId);
+    const client2 = createMockClient("player-2", matchId);
 
     manager.handleConnect(client1, testConfig);
     manager.handleConnect(client2, testConfig);
 
-    const match = manager.getMatch("test-match");
+    const match = manager.getMatch(matchId);
     expect(match!.playerCount()).toBe(2);
   });
 
   it("queues actions for the correct match", () => {
-    const client1 = createMockClient("player-1");
-    const client2 = createMockClient("player-2");
+    const { matchId } = manager.createMatchWithCode(testConfig);
+    const client1 = createMockClient("player-1", matchId);
+    const client2 = createMockClient("player-2", matchId);
 
     manager.handleConnect(client1, testConfig);
     manager.handleConnect(client2, testConfig);
 
-    manager.queueActions("test-match", "player-1", [
+    manager.queueActions(matchId, "player-1", [
       { type: "PlaceNode", nodeType: "generator", position: { x: 100, y: 200 } },
     ]);
 
@@ -85,23 +87,25 @@ describe("MatchManager", () => {
   });
 
   it("removes match when all players disconnect", () => {
-    const client1 = createMockClient("player-1");
+    const { matchId } = manager.createMatchWithCode(testConfig);
+    const client1 = createMockClient("player-1", matchId);
     manager.handleConnect(client1, testConfig);
-    manager.handleDisconnect("test-match", "player-1");
+    manager.handleDisconnect(matchId, "player-1");
 
-    expect(manager.getMatch("test-match")).toBeUndefined();
+    expect(manager.getMatch(matchId)).toBeUndefined();
   });
 
   it("keeps match alive when one player disconnects", () => {
-    const client1 = createMockClient("player-1");
-    const client2 = createMockClient("player-2");
+    const { matchId } = manager.createMatchWithCode(testConfig);
+    const client1 = createMockClient("player-1", matchId);
+    const client2 = createMockClient("player-2", matchId);
 
     manager.handleConnect(client1, testConfig);
     manager.handleConnect(client2, testConfig);
 
-    manager.handleDisconnect("test-match", "player-2");
+    manager.handleDisconnect(matchId, "player-2");
 
-    const match = manager.getMatch("test-match");
+    const match = manager.getMatch(matchId);
     expect(match).toBeDefined();
     expect(match!.playerCount()).toBe(1);
   });
@@ -113,8 +117,9 @@ describe("MatchManager", () => {
   });
 
   it("tick loop broadcasts to both players", () => {
-    const client1 = createMockClient("player-1");
-    const client2 = createMockClient("player-2");
+    const { matchId } = manager.createMatchWithCode(testConfig);
+    const client1 = createMockClient("player-1", matchId);
+    const client2 = createMockClient("player-2", matchId);
 
     manager.handleConnect(client1, testConfig);
     manager.handleConnect(client2, testConfig);
@@ -123,5 +128,27 @@ describe("MatchManager", () => {
 
     expect(client1.ws.send).toHaveBeenCalled();
     expect(client2.ws.send).toHaveBeenCalled();
+  });
+
+  it("returns match-not-found for unknown matchId", () => {
+    const client = createMockClient("player-1", "nonexistent");
+    const result = manager.handleConnect(client, testConfig);
+    expect(result).toBe("match-not-found");
+  });
+
+  it("replaces stale connection when player reconnects", () => {
+    const { matchId } = manager.createMatchWithCode(testConfig);
+    const client1 = createMockClient("player-1", matchId);
+    manager.handleConnect(client1, testConfig);
+
+    const client2 = createMockClient("player-2", matchId);
+    manager.handleConnect(client2, testConfig);
+
+    const client1Reconnect = createMockClient("player-1", matchId);
+    (client1.ws.close as ReturnType<typeof vi.fn>) = vi.fn();
+    const result = manager.handleConnect(client1Reconnect, testConfig);
+
+    expect(result).toBe("ok");
+    expect(client1.ws.close).toHaveBeenCalled();
   });
 });

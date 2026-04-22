@@ -379,6 +379,24 @@ export class GameRenderer {
       circle.stroke({ color: 0xffffff, width: 1, alpha: GHOST_OPACITY });
       this.ghostContainer.addChild(circle);
 
+      if (pending.funded !== undefined && pending.totalCost !== undefined && pending.totalCost > 0) {
+        const progress = pending.funded / pending.totalCost;
+        const barWidth = radius * 2;
+        const barHeight = 3;
+        const barX = pending.position.x - barWidth / 2;
+        const barY = pending.position.y + radius + 4;
+
+        const bg = new Graphics();
+        bg.rect(barX, barY, barWidth, barHeight);
+        bg.fill({ color: 0x333333, alpha: GHOST_OPACITY });
+        this.ghostContainer.addChild(bg);
+
+        const fill = new Graphics();
+        fill.rect(barX, barY, barWidth * progress, barHeight);
+        fill.fill({ color: 0x53d769, alpha: GHOST_OPACITY });
+        this.ghostContainer.addChild(fill);
+      }
+
       const closestNode = this.findClosestFriendlyNodeWithinRange(
         pending.position,
         pending.playerId,

@@ -81,8 +81,6 @@ function scoreAction(
   const player = state.players.find((p) => p.id === playerId);
   if (!player) return -Infinity;
 
-  if (player.resources < nodeConfig.cost) return -Infinity;
-
   const validation = validatePlaceNode(state, config, playerId, nodeType, position);
   if (!validation.valid) return -Infinity;
 
@@ -94,8 +92,6 @@ function scoreAction(
   const generatorCount = friendlyNodes.filter((n) => n.nodeType === "generator").length;
   const turretCount = friendlyNodes.filter((n) => n.nodeType === "turret").length;
   const totalNodes = friendlyNodes.length;
-
-  const resourcesAfterBuy = player.resources - nodeConfig.cost;
 
   let score = 0;
 
@@ -177,8 +173,12 @@ function scoreAction(
     }
   }
 
-  if (resourcesAfterBuy < 15 && player.resources >= 30) {
-    score *= 0.7;
+  const pendingCost = player.constructions.reduce((sum, c) => sum + c.totalCost - c.funded, 0);
+
+  const totalPending = pendingCost + nodeConfig.cost;
+
+  if (totalPending > 0 && player.constructions.length >= 3) {
+    score *= 0.5;
   }
 
   return score;
@@ -193,7 +193,7 @@ export function generateBotActions(
   const player = state.players.find((p) => p.id === playerId);
   if (!player) return [];
 
-  if (player.resources < 15) return [];
+  if (player.resources < 15 && player.constructions.length === 0) return [];
 
   const friendlyNodes = getConnectedFriendlyNodes(state, playerId);
   if (friendlyNodes.length === 0) return [];
@@ -206,7 +206,7 @@ export function generateBotActions(
 
   for (const nodeType of NODE_TYPES) {
     const nodeConfig = config.map.nodeTypeConfigs[nodeType];
-    if (!nodeConfig || player.resources < nodeConfig.cost) continue;
+    if (!nodeConfig) continue;
 
     for (const position of positions) {
       const s = scoreAction(state, config, playerId, nodeType, position);
@@ -232,7 +232,6 @@ export function generateBotActions(
 
   const selected: GameAction[] = [];
   const usedPositions = new Set<string>();
-  let spentResources = 0;
 
   for (const candidate of candidates) {
     if (selected.length >= maxActions) break;
@@ -240,8 +239,7 @@ export function generateBotActions(
     const posKey = `${candidate.action.position.x},${candidate.action.position.y}`;
     if (usedPositions.has(posKey)) continue;
 
-    const nodeConfig = config.map.nodeTypeConfigs[candidate.action.nodeType];
-    if (player.resources - spentResources < nodeConfig.cost) continue;
+    if (player.constructions.length + selected.length >= 5) continue;
 
     const validation = validatePlaceNode(
       state,
@@ -254,7 +252,6 @@ export function generateBotActions(
 
     selected.push(candidate.action);
     usedPositions.add(posKey);
-    spentResources += nodeConfig.cost;
   }
 
   return selected;

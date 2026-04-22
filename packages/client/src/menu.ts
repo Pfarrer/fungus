@@ -190,7 +190,7 @@ function renderMultiplayerSelect(playerName: string, callbacks: MenuCallbacks): 
   });
 }
 
-export function renderHostingScreen(gameCode: string): void {
+export function renderHostingScreen(gameCode: string, onCancel?: () => void): void {
   const el = createOverlay();
   el.style.cssText = MENU_STYLES;
 
@@ -213,6 +213,19 @@ export function renderHostingScreen(gameCode: string): void {
   waiting.textContent = "Waiting for opponent...";
   waiting.style.cssText = "color: #ff8c00; font-size: 16px; margin-top: 16px;";
   el.appendChild(waiting);
+
+  if (onCancel) {
+    const cancelBtn = document.createElement("button");
+    cancelBtn.textContent = "Cancel";
+    cancelBtn.style.cssText = `
+      padding: 12px 32px; border: 2px solid #999;
+      background: #16213e; color: #999; cursor: pointer;
+      border-radius: 6px; font-family: monospace; font-size: 18px;
+      margin-top: 24px;
+    `;
+    cancelBtn.addEventListener("click", onCancel);
+    el.appendChild(cancelBtn);
+  }
 }
 
 function renderJoinScreen(playerName: string, callbacks: MenuCallbacks): void {

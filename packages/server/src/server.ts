@@ -135,7 +135,13 @@ export function createServer(config?: GameConfig, port?: number): WebSocketServe
     });
 
     const client = { ws, matchId, playerId, playerName: playerName ?? undefined };
-    matchManager.handleConnect(client, config);
+    const result = matchManager.handleConnect(client, config);
+
+    if (result === "match-not-found") {
+      send(ws, { type: "error", message: "Match not found" });
+      ws.close();
+      return;
+    }
   });
 
   httpServer.listen(serverPort, () => {

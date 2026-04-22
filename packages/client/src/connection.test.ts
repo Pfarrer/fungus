@@ -29,8 +29,8 @@ const mockGameState: GameState = {
   ],
   edges: [],
   players: [
-    { id: "player-1", resources: 0, spawnPoint: { x: 50, y: 300 } },
-    { id: "player-2", resources: 0, spawnPoint: { x: 750, y: 300 } },
+    { id: "player-1", resources: 0, spawnPoint: { x: 50, y: 300 }, constructions: [] },
+    { id: "player-2", resources: 0, spawnPoint: { x: 750, y: 300 }, constructions: [] },
   ],
   tick: 0,
   winner: null,
@@ -144,8 +144,8 @@ describe("GameConnection integration", () => {
         ...mockGameState,
         tick: i,
         players: [
-          { id: "player-1", resources: i, spawnPoint: { x: 50, y: 300 } },
-          { id: "player-2", resources: i, spawnPoint: { x: 750, y: 300 } },
+          { id: "player-1", resources: i, spawnPoint: { x: 50, y: 300 }, constructions: [] },
+          { id: "player-2", resources: i, spawnPoint: { x: 750, y: 300 }, constructions: [] },
         ],
       };
       client.send(JSON.stringify({ type: "tick-result", gameState: state }));
@@ -334,8 +334,8 @@ describe("GameConnection integration", () => {
         { id: "e1", fromNodeId: "1", toNodeId: "3", health: 20, maxHealth: 20 },
       ],
       players: [
-        { id: "player-1", resources: 15, spawnPoint: { x: 50, y: 300 } },
-        { id: "player-2", resources: 10, spawnPoint: { x: 750, y: 300 } },
+        { id: "player-1", resources: 15, spawnPoint: { x: 50, y: 300 }, constructions: [] },
+        { id: "player-2", resources: 10, spawnPoint: { x: 750, y: 300 }, constructions: [] },
       ],
       tick: 5,
       winner: null,
@@ -908,8 +908,7 @@ describe("GameConnection reconnect state", () => {
 
   it("exposes retry attempts and next-attempt timing", () => {
     const conn = new GameConnection("ws://test", {
-      maxReconnectDelay: 1_000,
-      retryWindowMs: 5_000,
+      maxReconnectAttempts: 5,
     });
 
     const reconnectStates: Array<{
@@ -929,7 +928,7 @@ describe("GameConnection reconnect state", () => {
     expect(reconnectStates.at(-1)).toEqual({
       attempt: 1,
       nextAttemptAt: 2_000,
-      retryWindowEndsAt: 6_000,
+      retryWindowEndsAt: null,
       exhausted: false,
     });
 
@@ -939,10 +938,9 @@ describe("GameConnection reconnect state", () => {
     expect(reconnectStates.at(-1)).toBeNull();
   });
 
-  it("emits a terminal reconnect failure when the retry window is exhausted", () => {
+  it("emits a terminal reconnect failure when max attempts are exhausted", () => {
     const conn = new GameConnection("ws://test", {
-      maxReconnectDelay: 1_000,
-      retryWindowMs: 1_500,
+      maxReconnectAttempts: 1,
     });
 
     const failures: number[] = [];
@@ -954,10 +952,93 @@ describe("GameConnection reconnect state", () => {
     MockWebSocket.instances[0].open();
     MockWebSocket.instances[0].close();
 
+    expect(failures).toHaveLength(0);
+
     vi.advanceTimersByTime(1_000);
     MockWebSocket.instances[1].close();
 
     expect(failures).toHaveLength(1);
+    expect(conn.status).toBe("disconnected");
+  });
+
+  it("uses exponential backoff with 1s initial, doubling, 30s cap", () => {
+    const conn = new GameConnection("ws://test", {
+      maxReconnectAttempts: 10,
+    });
+
+    const reconnectStates: any[] = [];
+    conn.onReconnectStateChange((state) => {
+      if (state) reconnectStates.push(state);
+    });
+
+    conn.connect();
+    MockWebSocket.instances[0].open();
+    MockWebSocket.instances[0].close();
+
+    expect(reconnectStates.at(-1)!.attempt).toBe(1);
+    const firstDelay = reconnectStates.at(-1)!.nextAttemptAt - 1_000;
+    expect(firstDelay).toBe(1_000);
+
+    vi.advanceTimersByTime(1_000);
+    MockWebSocket.instances[1].close();
+
+    expect(reconnectStates.at(-1)!.attempt).toBe(2);
+    const secondDelay = reconnectStates.at(-1)!.nextAttemptAt - 2_000;
+    expect(secondDelay).toBe(2_000);
+
+    vi.advanceTimersByTime(2_000);
+    MockWebSocket.instances[2].close();
+
+    expect(reconnectStates.at(-1)!.attempt).toBe(3);
+    const thirdDelay = reconnectStates.at(-1)!.nextAttemptAt - 4_000;
+    expect(thirdDelay).toBe(4_000);
+  });
+
+  it("does not attempt reconnect after game ended", () => {
+    const conn = new GameConnection("ws://test", {
+      maxReconnectAttempts: 5,
+    });
+
+    const statusChanges: string[] = [];
+    conn.onStatusChange((status) => {
+      statusChanges.push(status);
+    });
+
+    conn.connect();
+    MockWebSocket.instances[0].open();
+    conn.markGameEnded();
+    MockWebSocket.instances[0].close();
+
+    vi.advanceTimersByTime(10_000);
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(conn.status).toBe("disconnected");
+    expect(statusChanges).toContain("disconnected");
+    expect(statusChanges).not.toContain("reconnecting");
+  });
+
+  it("emits reconnect-failed after 5 consecutive failures", () => {
+    const conn = new GameConnection("ws://test", {
+      maxReconnectAttempts: 5,
+    });
+
+    let failed = false;
+    conn.onReconnectFailed(() => {
+      failed = true;
+    });
+
+    conn.connect();
+    MockWebSocket.instances[0].open();
+    MockWebSocket.instances[0].close();
+
+    for (let i = 1; i <= 5; i++) {
+      vi.advanceTimersByTime(30_000);
+      const ws = MockWebSocket.instances.at(-1);
+      if (ws && ws.readyState !== MockWebSocket.CLOSED) {
+        ws.close();
+      }
+    }
+
+    expect(failed).toBe(true);
     expect(conn.status).toBe("disconnected");
   });
 });

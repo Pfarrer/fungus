@@ -10,8 +10,7 @@ export interface ReconnectState {
 }
 
 export interface GameConnectionOptions {
-  maxReconnectDelay?: number;
-  retryWindowMs?: number;
+  maxReconnectAttempts?: number;
 }
 
 export interface ServerMessageMap {
@@ -55,15 +54,13 @@ export class GameConnection {
   private reconnectFailedHandlers: Set<() => void> = new Set();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
-  private maxReconnectDelay: number;
-  private retryWindowMs: number;
-  private retryWindowEndsAt: number | null = null;
+  private maxReconnectAttempts: number;
+  private gameEnded = false;
   private _status: ConnectionStatus = "disconnected";
 
   constructor(url: string, options: GameConnectionOptions = {}) {
     this.url = url;
-    this.maxReconnectDelay = options.maxReconnectDelay ?? 10000;
-    this.retryWindowMs = options.retryWindowMs ?? 30000;
+    this.maxReconnectAttempts = options.maxReconnectAttempts ?? 5;
   }
 
   get status(): ConnectionStatus {
@@ -76,7 +73,6 @@ export class GameConnection {
     this.ws = new WebSocket(this.url);
     this.ws.onopen = () => {
       this.reconnectAttempts = 0;
-      this.retryWindowEndsAt = null;
       this.emitReconnectState(null);
       this.setStatus("connected");
     };
@@ -92,6 +88,10 @@ export class GameConnection {
     };
 
     this.ws.onclose = () => {
+      if (this.gameEnded) {
+        this.setStatus("disconnected");
+        return;
+      }
       this.setStatus("reconnecting");
       this.scheduleReconnect();
     };
@@ -125,9 +125,13 @@ export class GameConnection {
   disconnect(): void {
     this.cleanup();
     this.reconnectAttempts = 0;
-    this.retryWindowEndsAt = null;
+    this.gameEnded = false;
     this.emitReconnectState(null);
     this.setStatus("disconnected");
+  }
+
+  markGameEnded(): void {
+    this.gameEnded = true;
   }
 
   queueActions(actions: GameAction[]): void {
@@ -184,19 +188,11 @@ export class GameConnection {
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return;
 
-    const now = Date.now();
-    if (this.retryWindowEndsAt === null) {
-      this.retryWindowEndsAt = now + this.retryWindowMs;
-    }
-
-    const delay = Math.min(1000 * 2 ** this.reconnectAttempts, this.maxReconnectDelay);
-    const nextAttemptAt = now + delay;
-
-    if (nextAttemptAt > this.retryWindowEndsAt) {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       this.emitReconnectState({
-        attempt: this.reconnectAttempts + 1,
+        attempt: this.reconnectAttempts,
         nextAttemptAt: null,
-        retryWindowEndsAt: this.retryWindowEndsAt,
+        retryWindowEndsAt: null,
         exhausted: true,
       });
       this.setStatus("disconnected");
@@ -204,11 +200,15 @@ export class GameConnection {
       return;
     }
 
+    const now = Date.now();
+    const delay = Math.min(1000 * 2 ** this.reconnectAttempts, 30000);
+    const nextAttemptAt = now + delay;
+
     this.reconnectAttempts++;
     this.emitReconnectState({
       attempt: this.reconnectAttempts,
       nextAttemptAt,
-      retryWindowEndsAt: this.retryWindowEndsAt,
+      retryWindowEndsAt: null,
       exhausted: false,
     });
 

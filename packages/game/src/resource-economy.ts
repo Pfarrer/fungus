@@ -60,11 +60,28 @@ export function generateResources(
       }
     }
 
-    const newResources = Math.min(
-      player.resources + totalProduction,
-      config.resourceCap,
-    );
+    return { ...player, resources: player.resources + totalProduction };
+  });
 
+  return { ...state, players: updatedPlayers };
+}
+
+export function consumeResources(
+  state: GameState,
+  config: GameConfig,
+): GameState {
+  const updatedPlayers = state.players.map((player) => {
+    const connected = getConnectedNodes(state, player.id);
+    let totalConsumption = 0;
+
+    for (const node of connected) {
+      const typeConfig = config.map.nodeTypeConfigs[node.nodeType];
+      if (typeConfig) {
+        totalConsumption += typeConfig.consumptionPerTick;
+      }
+    }
+
+    const newResources = Math.max(0, player.resources - totalConsumption);
     return { ...player, resources: newResources };
   });
 

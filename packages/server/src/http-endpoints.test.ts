@@ -21,7 +21,6 @@ const fastConfig: GameConfig = {
     edgeHealth: 20,
   },
   tickDurationMs: 100,
-  resourceCap: 500,
   deathRatePerTick: 5,
   maxShieldReductionPercent: 90,
 };
@@ -247,5 +246,41 @@ describe("HTTP endpoints", () => {
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
     expect(res.headers.get("Access-Control-Allow-Methods")).toBe("GET, POST, OPTIONS");
     expect(res.headers.get("Access-Control-Allow-Headers")).toBe("Content-Type");
+  });
+
+  it("sends error and closes when connecting to non-existent match", async () => {
+    server = createServer(fastConfig, 0);
+    await new Promise<void>((resolve) => server!.on("listening", resolve));
+    const port = getPort(server!);
+
+    const msgs: any[] = [];
+    const ws = new WebSocket(`ws://localhost:${port}?matchId=nonexistent&playerId=player-1`);
+    ws.on("message", (data) => msgs.push(JSON.parse(data.toString())));
+
+    await new Promise<void>((resolve) => ws.on("close", resolve));
+
+    const errorMsgs = msgs.filter((m) => m.type === "error");
+    expect(errorMsgs.length).toBe(1);
+    expect(errorMsgs[0].message).toBe("Match not found");
+  });
+
+  it("replaces stale connection when player reconnects to same match", async () => {
+    server = createServer(fastConfig, 0);
+    await new Promise<void>((resolve) => server!.on("listening", resolve));
+    const port = getPort(server!);
+
+    const hostRes = await httpFetch(port, "/host", { method: "POST" });
+    const hostBody = await hostRes.json();
+
+    const p1 = await connectPlayer(port, hostBody.matchId, "player-1");
+    openSockets.push(p1.ws);
+    await waitFor(50);
+
+    const p1Reconnect = await connectPlayer(port, hostBody.matchId, "player-1");
+    openSockets.push(p1Reconnect.ws);
+    await waitFor(50);
+
+    const matchStateMsgs = p1Reconnect.msgs.filter((m: any) => m.type === "match-state");
+    expect(matchStateMsgs.length).toBe(1);
   });
 });

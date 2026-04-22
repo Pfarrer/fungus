@@ -36,7 +36,7 @@ export function loadScenario(
 
   const players = [
     firstPlayer,
-    { id: enemyPlayerId, resources: 9999, spawnPoint: { x: 0, y: 0 } },
+    { id: enemyPlayerId, resources: 9999, spawnPoint: { x: 0, y: 0 }, constructions: [] },
   ];
 
   const enemyNodes: Node[] = scenario.enemyNodes.map((nodeData) => {

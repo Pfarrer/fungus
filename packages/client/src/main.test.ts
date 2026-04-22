@@ -144,8 +144,8 @@ const mockGameState = {
   nodes: [],
   edges: [],
   players: [
-    { id: "player-1", name: "Alice", resources: 0, spawnPoint: { x: 0, y: 0 } },
-    { id: "player-2", name: "Bob", resources: 0, spawnPoint: { x: 10, y: 10 } },
+    { id: "player-1", name: "Alice", resources: 0, spawnPoint: { x: 0, y: 0 }, constructions: [] },
+    { id: "player-2", name: "Bob", resources: 0, spawnPoint: { x: 10, y: 10 }, constructions: [] },
   ],
   tick: 0,
   winner: null,

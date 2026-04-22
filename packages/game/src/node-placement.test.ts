@@ -6,12 +6,16 @@ import {
   placeNode,
   resetNodeIdCounter,
   resetEdgeIdCounter,
+  generateNodeId,
+  generateEdgeId,
 } from "./node-placement.js";
+import { resetConstructionIdCounter } from "./construction.js";
 
 describe("node placement", () => {
   beforeEach(() => {
     resetNodeIdCounter();
     resetEdgeIdCounter();
+    resetConstructionIdCounter();
   });
 
   function freshState() {
@@ -83,22 +87,8 @@ describe("node placement", () => {
       expect(result.reason).toContain("range");
     });
 
-    it("rejects insufficient resources", () => {
+    it("accepts valid placement regardless of resources", () => {
       const state = freshState();
-      const result = validatePlaceNode(
-        state,
-        defaultGameConfig,
-        "player-1",
-        "generator",
-        { x: 75, y: 300 },
-      );
-      expect(result.valid).toBe(false);
-      expect(result.reason).toContain("resources");
-    });
-
-    it("accepts valid placement", () => {
-      const state = freshState();
-      state.players[0].resources = 15;
       const result = validatePlaceNode(
         state,
         defaultGameConfig,
@@ -111,9 +101,34 @@ describe("node placement", () => {
 
     it("rejects placement too close to existing node", () => {
       const state = freshState();
-      state.players[0].resources = 30;
-      const stateWithNode = placeNode(state, defaultGameConfig, "player-1", "generator", { x: 75, y: 300 });
-      stateWithNode.players[0].resources = 15;
+      const rootId = state.nodes.find((n) => n.playerId === "player-1")!.id;
+      const genId = generateNodeId();
+      const stateWithNode: typeof state = {
+        ...state,
+        nodes: [
+          ...state.nodes,
+          {
+            id: genId,
+            playerId: "player-1",
+            nodeType: "generator",
+            position: { x: 75, y: 300 },
+            health: 30,
+            maxHealth: 30,
+            parentId: rootId,
+            connected: true,
+          },
+        ],
+        edges: [
+          ...state.edges,
+          {
+            id: generateEdgeId(),
+            fromNodeId: rootId,
+            toNodeId: genId,
+            health: 20,
+            maxHealth: 20,
+          },
+        ],
+      };
 
       const result = validatePlaceNode(
         stateWithNode,
@@ -128,9 +143,34 @@ describe("node placement", () => {
 
     it("accepts placement at exactly minNodeDistance", () => {
       const state = freshState();
-      state.players[0].resources = 30;
-      const stateWithNode = placeNode(state, defaultGameConfig, "player-1", "generator", { x: 75, y: 300 });
-      stateWithNode.players[0].resources = 15;
+      const rootId = state.nodes.find((n) => n.playerId === "player-1")!.id;
+      const genId = generateNodeId();
+      const stateWithNode: typeof state = {
+        ...state,
+        nodes: [
+          ...state.nodes,
+          {
+            id: genId,
+            playerId: "player-1",
+            nodeType: "generator",
+            position: { x: 75, y: 300 },
+            health: 30,
+            maxHealth: 30,
+            parentId: rootId,
+            connected: true,
+          },
+        ],
+        edges: [
+          ...state.edges,
+          {
+            id: generateEdgeId(),
+            fromNodeId: rootId,
+            toNodeId: genId,
+            health: 20,
+            maxHealth: 20,
+          },
+        ],
+      };
 
       const result = validatePlaceNode(
         stateWithNode,
@@ -144,9 +184,34 @@ describe("node placement", () => {
 
     it("accepts placement beyond minNodeDistance", () => {
       const state = freshState();
-      state.players[0].resources = 30;
-      const stateWithNode = placeNode(state, defaultGameConfig, "player-1", "generator", { x: 75, y: 300 });
-      stateWithNode.players[0].resources = 15;
+      const rootId = state.nodes.find((n) => n.playerId === "player-1")!.id;
+      const genId = generateNodeId();
+      const stateWithNode: typeof state = {
+        ...state,
+        nodes: [
+          ...state.nodes,
+          {
+            id: genId,
+            playerId: "player-1",
+            nodeType: "generator",
+            position: { x: 75, y: 300 },
+            health: 30,
+            maxHealth: 30,
+            parentId: rootId,
+            connected: true,
+          },
+        ],
+        edges: [
+          ...state.edges,
+          {
+            id: generateEdgeId(),
+            fromNodeId: rootId,
+            toNodeId: genId,
+            health: 20,
+            maxHealth: 20,
+          },
+        ],
+      };
 
       const result = validatePlaceNode(
         stateWithNode,
@@ -160,10 +225,35 @@ describe("node placement", () => {
 
     it("enforces min distance against enemy nodes", () => {
       const state = freshState();
-      state.players[1].resources = 15;
-      const stateWithEnemy = placeNode(state, defaultGameConfig, "player-2", "generator", { x: 725, y: 300 });
+      const p2RootId = state.nodes.find((n) => n.playerId === "player-2")!.id;
+      const genId = generateNodeId();
+      const stateWithEnemy: typeof state = {
+        ...state,
+        nodes: [
+          ...state.nodes,
+          {
+            id: genId,
+            playerId: "player-2",
+            nodeType: "generator",
+            position: { x: 725, y: 300 },
+            health: 30,
+            maxHealth: 30,
+            parentId: p2RootId,
+            connected: true,
+          },
+        ],
+        edges: [
+          ...state.edges,
+          {
+            id: generateEdgeId(),
+            fromNodeId: p2RootId,
+            toNodeId: genId,
+            health: 20,
+            maxHealth: 20,
+          },
+        ],
+      };
 
-      stateWithEnemy.players[0].resources = 15;
       const result = validatePlaceNode(
         stateWithEnemy,
         defaultGameConfig,
@@ -177,7 +267,6 @@ describe("node placement", () => {
 
     it("accepts placement at exact max distance", () => {
       const state = freshState();
-      state.players[0].resources = 15;
       const result = validatePlaceNode(
         state,
         defaultGameConfig,
@@ -190,9 +279,8 @@ describe("node placement", () => {
   });
 
   describe("placeNode", () => {
-    it("places a node within range and deducts cost", () => {
+    it("queues construction instead of placing node immediately", () => {
       const state = freshState();
-      state.players[0].resources = 15;
 
       const newState = placeNode(
         state,
@@ -202,14 +290,17 @@ describe("node placement", () => {
         { x: 75, y: 300 },
       );
 
-      expect(newState.nodes).toHaveLength(3);
-      expect(newState.edges).toHaveLength(1);
-      expect(newState.players[0].resources).toBe(0);
+      expect(newState.nodes).toHaveLength(2);
+      expect(newState.edges).toHaveLength(0);
+      expect(newState.players[0].constructions).toHaveLength(1);
+      expect(newState.players[0].constructions[0].nodeType).toBe("generator");
+      expect(newState.players[0].constructions[0].totalCost).toBe(15);
+      expect(newState.players[0].constructions[0].funded).toBe(0);
     });
 
-    it("creates edge to closest friendly node (parent)", () => {
+    it("records parentId from closest friendly node", () => {
       const state = freshState();
-      state.players[0].resources = 15;
+      const rootId = state.nodes.find((n) => n.playerId === "player-1")!.id;
 
       const newState = placeNode(
         state,
@@ -219,15 +310,22 @@ describe("node placement", () => {
         { x: 75, y: 300 },
       );
 
-      const newNode = newState.nodes.find(
-        (n) => n.position.x === 75 && n.position.y === 300,
-      );
-      expect(newNode).toBeDefined();
-      expect(newNode!.parentId).toBe("1");
+      expect(newState.players[0].constructions[0].parentId).toBe(rootId);
+    });
 
-      const edge = newState.edges[0];
-      expect(edge.fromNodeId).toBe("1");
-      expect(edge.toNodeId).toBe(newNode!.id);
+    it("does not deduct resources at placement time", () => {
+      const state = freshState();
+      state.players[0].resources = 100;
+
+      const newState = placeNode(
+        state,
+        defaultGameConfig,
+        "player-1",
+        "generator",
+        { x: 75, y: 300 },
+      );
+
+      expect(newState.players[0].resources).toBe(100);
     });
 
     it("returns unchanged state when invalid", () => {
@@ -242,36 +340,11 @@ describe("node placement", () => {
       );
 
       expect(newState).toBe(state);
-      expect(newState.nodes).toHaveLength(2);
-    });
-
-    it("sets correct health on new node and edge", () => {
-      const state = freshState();
-      state.players[0].resources = 15;
-
-      const newState = placeNode(
-        state,
-        defaultGameConfig,
-        "player-1",
-        "generator",
-        { x: 75, y: 300 },
-      );
-
-      const newNode = newState.nodes.find(
-        (n) => n.nodeType === "generator",
-      );
-      expect(newNode!.health).toBe(30);
-      expect(newNode!.maxHealth).toBe(30);
-
-      const edge = newState.edges[0];
-      expect(edge.health).toBe(defaultGameConfig.map.edgeHealth);
-      expect(edge.maxHealth).toBe(defaultGameConfig.map.edgeHealth);
+      expect(newState.players[0].constructions).toHaveLength(0);
     });
 
     it("does not mutate original state", () => {
       const state = freshState();
-      state.players[0].resources = 15;
-      const originalNodeCount = state.nodes.length;
 
       placeNode(
         state,
@@ -281,8 +354,20 @@ describe("node placement", () => {
         { x: 75, y: 300 },
       );
 
-      expect(state.nodes).toHaveLength(originalNodeCount);
-      expect(state.edges).toHaveLength(0);
+      expect(state.nodes).toHaveLength(2);
+      expect(state.players[0].constructions).toHaveLength(0);
+    });
+
+    it("rejects root placement", () => {
+      const state = freshState();
+      const newState = placeNode(
+        state,
+        defaultGameConfig,
+        "player-1",
+        "root",
+        { x: 60, y: 300 },
+      );
+      expect(newState).toBe(state);
     });
   });
 });

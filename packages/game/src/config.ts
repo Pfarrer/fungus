@@ -42,7 +42,6 @@ export const defaultGameConfig: GameConfig = {
     edgeHealth: 20,
   },
   tickDurationMs: 1000,
-  resourceCap: 500,
   deathRatePerTick: 5,
   maxShieldReductionPercent: 90,
 };
